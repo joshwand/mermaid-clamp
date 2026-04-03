@@ -34,6 +34,7 @@
   "devDependencies": {
     "@types/node": "^22.x",
     "mermaid": "^11.x",
+    "showboat": "^0.6.1",
     "typescript": "^5.x",
     "vite": "^5.x",
     "vitest": "^2.x"
