@@ -1,8 +1,8 @@
 # Current Epic
 
-## Focus: Pre-Implementation Specification
+## Focus: Phase 1 Implementation
 
-**Status:** Spec complete. Ready for coding agent to begin Task 1.
+**Status:** Task 1 complete. Ready for Task 2 (Constraint Parser).
 
 ## Key Decisions Made
 
@@ -20,12 +20,34 @@
 
 7. **Showboat + Rodney verification.** Agent builds a demo document at each milestone; human reviews before next task.
 
+8. **Vite `output.exports: "named"`** in rollupOptions — suppresses "named+default exports together" warning, required because `src/index.ts` uses both `export default` and named re-exports.
+
+## Task Status
+
+| Task | Status |
+|------|--------|
+| 1 — Project Scaffold + Types | ✅ Complete |
+| 2 — Constraint Parser | ⬜ Next |
+| 3 — Constraint Serializer | ⬜ |
+| 4 — Constraint Solver | ⬜ |
+| 5 — Layout Engine Integration | ⬜ |
+| 6 — Edge Router | ⬜ |
+| 7 — State Manager | ⬜ |
+| 8 — Constraint Inference Engine | ⬜ |
+| 9 — Editor Overlay Basic Drag | ⬜ |
+| 10 — Affordance Rendering | ⬜ |
+| 11 — Shift+Drag Constraint Selection | ⬜ |
+| 12 — Export + E2E Integration | ⬜ |
+| 13 — User Documentation | ⬜ |
+| 14 — Final Demo + Polish | ⬜ |
+
 ## Next Steps
 
 Agent should:
-1. Read all `_memory/basicTruths/*` files
-2. Read `_memory/knowledgeBase/reference/ConstraintLanguageSpec.md`
-3. Begin Task 1 from `theBacklog.md`
+1. Check `_memory/currentState/currentTaskState.md` for Task 1 completion status
+2. Build Showboat demo for Task 1 if not yet done
+3. Wait for human review
+4. Begin Task 2 (Constraint Parser) from `theBacklog.md`
 
 ## Active Risks
 

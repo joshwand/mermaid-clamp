@@ -1,0 +1,41 @@
+{
+  "name": "mermaid-layout-constraints",
+  "version": "0.1.0",
+  "description": "Constraint-based layout engine and interactive editor for MermaidJS",
+  "type": "module",
+  "scripts": {
+    "build": "vite build && tsc --emitDeclarationOnly --declaration --declarationDir dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/mermaid-layout-constraints.esm.mjs",
+      "require": "./dist/mermaid-layout-constraints.cjs.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./editor": {
+      "import": "./dist/editor.esm.mjs",
+      "require": "./dist/editor.cjs.js",
+      "types": "./dist/editor.d.ts"
+    }
+  },
+  "main": "./dist/mermaid-layout-constraints.cjs.js",
+  "module": "./dist/mermaid-layout-constraints.esm.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "mermaid": ">=11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.x",
+    "mermaid": "^11.x",
+    "typescript": "^5.x",
+    "vite": "^5.x",
+    "vitest": "^2.x"
+  }
+}
