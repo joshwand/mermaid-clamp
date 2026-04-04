@@ -15,7 +15,10 @@ export default defineConfig({
       },
     },
     rollupOptions: {
-      external: ['mermaid'],
+      external: [
+        'mermaid',
+        /^mermaid\//,  // mermaid sub-paths (chunks, internals)
+      ],
       output: {
         exports: 'named',
       },

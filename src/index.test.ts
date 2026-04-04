@@ -14,16 +14,10 @@ describe('mermaid-layout-constraints scaffold', () => {
       expect(typeof entry?.loader).toBe('function');
     });
 
-    it('loader resolves to a callable layout function', async () => {
+    it('loader resolves to a LayoutAlgorithm with a render method', async () => {
       const entry = constraintLayouts.find((l) => l.name === 'constrained-dagre')!;
-      const layoutFn = await entry.loader();
-      expect(typeof layoutFn).toBe('function');
-    });
-
-    it('layout function can be called with no-op data', async () => {
-      const entry = constraintLayouts.find((l) => l.name === 'constrained-dagre')!;
-      const layoutFn = await entry.loader();
-      await expect(layoutFn({})).resolves.toBeUndefined();
+      const algorithm = await entry.loader();
+      expect(typeof algorithm.render).toBe('function');
     });
   });
 

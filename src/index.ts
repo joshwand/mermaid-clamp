@@ -29,3 +29,9 @@ export type {
 export { parseConstraints } from './parser/index.js';
 export { serializeConstraints, injectConstraints, stripConstraints } from './serializer/index.js';
 export { solveConstraints } from './solver/index.js';
+export {
+  setDiagramText,
+  applyConstraintsToNodes,
+  parseTranslate,
+  formatTranslate,
+} from './layout/index.js';

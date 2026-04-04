@@ -124,16 +124,31 @@ export interface LayoutNode {
 // ── Layout loader types (mermaid plugin API) ──────────────────────────────────
 
 /**
- * Matches the mermaid LayoutLoaderDefinition interface.
- * The `data` parameter is mermaid's internal LayoutData — typed as unknown
- * at this boundary; the layout implementation casts appropriately.
+ * Matches mermaid's LayoutAlgorithm interface.
+ * All parameters are typed as unknown at this boundary; the implementation
+ * casts to mermaid-internal types as needed.
+ * (Comment: mermaid internal)
  */
-export type LayoutFunction = (data: unknown, options?: unknown) => Promise<void> | void;
+export interface LayoutAlgorithm {
+  render(
+    layoutData: unknown,
+    svg: unknown,
+    helpers: unknown,
+    options?: unknown,
+  ): Promise<void>;
+}
+
+/**
+ * Convenience alias kept for backward compatibility with the stub.
+ * @deprecated Use LayoutAlgorithm instead.
+ */
+export type LayoutFunction = LayoutAlgorithm;
 
 /** Registration entry for mermaid.registerLayoutLoaders(). */
 export interface LayoutLoaderDefinition {
   name: string;
-  loader: () => Promise<LayoutFunction>;
+  loader: () => Promise<LayoutAlgorithm>;
+  algorithm?: string;
 }
 
 // ── Editor / inference types ──────────────────────────────────────────────────
