@@ -20,63 +20,8 @@ pnpm test -- --reporter=verbose 2>&1 | grep -A 100 'src/parser'
 
 ```
 
-```node
-
-const { parseConstraints } = require('./dist/mermaid-layout-constraints.cjs.js');
-const text = `flowchart TD
-    A --> B
-    B --> C
-    B --> D
-
-%% @layout-constraints v1
-%% align B, C, v
-%% D east-of B, 200
-%% group E, F as outputs
-%% anchor A, 50, 50
-%% waypoint D-->H as wp1
-%% wp1 west-of C, 20
-%% @end-layout-constraints`;
-
-const cs = parseConstraints(text);
-console.log(JSON.stringify(cs, null, 2));
-
-```
-
-```output
-node:internal/modules/cjs/loader:1386
-  throw err;
-  ^
-
-Error: Cannot find module '/home/user/mermaid-clamp/
-const { parseConstraints } = require('./dist/mermaid-layout-constraints.cjs.js');
-const text = `flowchart TD
-    A --> B
-    B --> C
-    B --> D
-
-%% @layout-constraints v1
-%% align B, C, v
-%% D east-of B, 200
-%% group E, F as outputs
-%% anchor A, 50, 50
-%% waypoint D-->H as wp1
-%% wp1 west-of C, 20
-%% @end-layout-constraints`;
-
-const cs = parseConstraints(text);
-console.log(JSON.stringify(cs, null, 2));
-'
-    at node:internal/modules/cjs/loader:1383:15
-    at node:internal/main/check_syntax:33:20 {
-  code: 'MODULE_NOT_FOUND',
-  requireStack: []
-}
-
-Node.js v22.22.2
-```
-
 ```bash
-node /tmp/parser-demo.mjs
+node demos/parser-demo.mjs
 ```
 
 ```output
