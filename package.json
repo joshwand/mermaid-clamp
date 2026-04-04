@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build && tsc --emitDeclarationOnly --declaration --declarationDir dist",
+    "demo": "VITE_DEMO=1 vite",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
