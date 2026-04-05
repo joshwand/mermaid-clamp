@@ -35,33 +35,33 @@ pnpm test -- --reporter=verbose 2>&1 | tail -60
 ```
 
 ```bash {image}
-demos/bugs-01-curved-paths-before-constraint.png
+demos/bugs/bugs-01-curved-paths-before-constraint.png
 ```
 
-![7ae3236a-2026-04-05](7ae3236a-2026-04-05.png)
+![7ae3236a-2026-04-05](bugs/7ae3236a-2026-04-05.png)
 
 ```bash {image}
-demos/bugs-01-curved-paths-after-constraint.png
+demos/bugs/bugs-01-curved-paths-after-constraint.png
 ```
 
-![b37cc434-2026-04-05](b37cc434-2026-04-05.png)
+![b37cc434-2026-04-05](bugs/b37cc434-2026-04-05.png)
 
 ```bash {image}
-demos/bugs-01-curved-paths-full-constraints.png
+demos/bugs/bugs-01-curved-paths-full-constraints.png
 ```
 
-![04091a08-2026-04-05](04091a08-2026-04-05.png)
+![04091a08-2026-04-05](bugs/04091a08-2026-04-05.png)
 
 ```bash {image}
-demos/bugs-02-default-distance-compare-viewport.png
+demos/bugs/bugs-02-default-distance-compare-viewport.png
 ```
 
-![9ef26bc0-2026-04-05](9ef26bc0-2026-04-05.png)
+![9ef26bc0-2026-04-05](bugs/9ef26bc0-2026-04-05.png)
 
 ```bash {image}
-demos/bugs-03-cascade-viewport.png
+demos/bugs/bugs-03-cascade-viewport.png
 ```
 
-![cde2672a-2026-04-05](cde2672a-2026-04-05.png)
+![cde2672a-2026-04-05](bugs/cde2672a-2026-04-05.png)
 
 All 109 tests pass. BUG-1 fix (similarity transform) replaces the previous linear-blend approach which caused kinks/zig-zags in the visual output. Screenshots confirm clean smooth curves matching dagre baseline quality.

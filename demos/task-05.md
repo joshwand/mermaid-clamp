@@ -74,7 +74,7 @@ H south-of D, 20    → H placed 20px edge-to-edge below D
 align G, H, h       → H moves to G's row (G is reference/anchor)
 ```
 
-![Default constraints — before and after side by side](task-05-01-default-side-by-side.png)
+![Default constraints — before and after side by side](task-05/task-05-01-default-side-by-side.png)
 
 ---
 
@@ -84,7 +84,7 @@ Same diagram and constraints as Scenario 1.
 
 No overlaps. D is right of C. E/F row-aligned. G/H row-aligned.
 
-![Constrained layout — after panel](task-05-02-default-after.png)
+![Constrained layout — after panel](task-05/task-05-02-default-after.png)
 
 ---
 
@@ -94,7 +94,7 @@ Same diagram source as Scenario 1. No constraints applied.
 
 Stock dagre layout — no constraints applied.
 
-![Dagre baseline — before panel](task-05-03-default-before.png)
+![Dagre baseline — before panel](task-05/task-05-03-default-before.png)
 
 ---
 
@@ -112,7 +112,7 @@ Stock dagre layout — no constraints applied.
 B is listed first → B is the reference. D moves **up** to B's row.
 Overlap repulsion then pushes B and D apart horizontally (they would otherwise collide).
 
-![align B, D, h — D moves up to B's row; repulsion separates them](task-05-04-align-h-first-is-anchor.png)
+![align B, D, h — D moves up to B's row; repulsion separates them](task-05/task-05-04-align-h-first-is-anchor.png)
 
 ---
 
@@ -129,7 +129,7 @@ Overlap repulsion then pushes B and D apart horizontally (they would otherwise c
 
 G is listed first → G is the reference. H moves **down** to G's row.
 
-![align G, H, h — H moves down to G's row](task-05-05-align-h-second-follows.png)
+![align G, H, h — H moves down to G's row](task-05/task-05-05-align-h-second-follows.png)
 
 ---
 
@@ -146,7 +146,7 @@ G is listed first → G is the reference. H moves **down** to G's row.
 
 B is first → reference. C shifts left to B's x-center.
 
-![align B, C, v — C moves to B's column](task-05-06-align-v.png)
+![align B, C, v — C moves to B's column](task-05/task-05-06-align-v.png)
 
 ---
 
@@ -163,7 +163,7 @@ B is first → reference. C shifts left to B's x-center.
 
 50px gap between C's right edge and D's left edge (not center-to-center).
 
-![D east-of C, 50 — 50px edge-to-edge gap](task-05-07-east-of.png)
+![D east-of C, 50 — 50px edge-to-edge gap](task-05/task-05-07-east-of.png)
 
 ---
 
@@ -180,7 +180,7 @@ B is first → reference. C shifts left to B's x-center.
 
 20px gap between C's bottom edge and E's top edge.
 
-![E south-of C, 20 — 20px edge-to-edge gap](task-05-08-south-of.png)
+![E south-of C, 20 — 20px edge-to-edge gap](task-05/task-05-08-south-of.png)
 
 ---
 
@@ -199,7 +199,7 @@ B is first → reference. C shifts left to B's x-center.
 `align B, D, h` pulls D up to B's row; `align G, H, h` pulls H down to G's row.
 B and D are now at the same Y — repulsion pushes them apart horizontally. No overlap.
 
-![Dual h-align with repulsion — B/D and G/H at same rows, no overlap](task-05-09-overlap-repulsion.png)
+![Dual h-align with repulsion — B/D and G/H at same rows, no overlap](task-05/task-05-09-overlap-repulsion.png)
 
 ---
 
@@ -217,7 +217,7 @@ B and D are now at the same Y — repulsion pushes them apart horizontally. No o
 
 Malformed constraint line is skipped; warning appears in the yellow status bar.
 
-![Malformed constraint — warning shown in status bar](task-05-10-warnings.png)
+![Malformed constraint — warning shown in status bar](task-05/task-05-10-warnings.png)
 
 ---
 
@@ -229,7 +229,7 @@ Malformed constraint line is skipped; warning appears in the yellow status bar.
 
 Both textareas visible; diagram and constraints are editable; re-renders on input with 750ms debounce.
 
-![Full live editor with textareas](task-05-11-live-editor.png)
+![Full live editor with textareas](task-05/task-05-11-live-editor.png)
 
 ---
 

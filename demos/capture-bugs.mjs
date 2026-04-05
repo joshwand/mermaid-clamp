@@ -7,7 +7,7 @@ const PORT = 5175;
 const scenarios = [
   // ── BUG-2: default distance ─────────────────────────────────────────────────
   {
-    file: 'demos/bugs-02-default-distance-no-arg.png',
+    file: 'demos/bugs/bugs-02-default-distance-no-arg.png',
     description: 'BUG-2: D east-of C with no distance — should show visible 20px gap',
     constraints: `%% @layout-constraints v1
 %% D east-of C
@@ -15,7 +15,7 @@ const scenarios = [
     screenshot: '#after',
   },
   {
-    file: 'demos/bugs-02-default-distance-explicit-zero.png',
+    file: 'demos/bugs/bugs-02-default-distance-explicit-zero.png',
     description: 'BUG-2: D east-of C, 0 — should mean touching (0px gap)',
     constraints: `%% @layout-constraints v1
 %% D east-of C, 0
@@ -23,7 +23,7 @@ const scenarios = [
     screenshot: '#after',
   },
   {
-    file: 'demos/bugs-02-default-distance-compare-viewport.png',
+    file: 'demos/bugs/bugs-02-default-distance-compare-viewport.png',
     description: 'BUG-2: side-by-side — before (no constraints) vs after (D east-of C default gap)',
     constraints: `%% @layout-constraints v1
 %% D east-of C
@@ -33,7 +33,7 @@ const scenarios = [
 
   // ── BUG-3: cascade / descendant dragging ────────────────────────────────────
   {
-    file: 'demos/bugs-03-cascade-H-below-D.png',
+    file: 'demos/bugs/bugs-03-cascade-H-below-D.png',
     description: 'BUG-3: H south-of D, 20 + D east-of C, 50 — H must be below D\'s NEW position',
     constraints: `%% @layout-constraints v1
 %% H south-of D, 20
@@ -42,7 +42,7 @@ const scenarios = [
     screenshot: '#after',
   },
   {
-    file: 'demos/bugs-03-cascade-viewport.png',
+    file: 'demos/bugs/bugs-03-cascade-viewport.png',
     description: 'BUG-3: full page — cascade ordering proof',
     constraints: `%% @layout-constraints v1
 %% H south-of D, 20
@@ -53,14 +53,14 @@ const scenarios = [
 
   // ── BUG-1: curved paths preserved ───────────────────────────────────────────
   {
-    file: 'demos/bugs-01-curved-paths-before-constraint.png',
+    file: 'demos/bugs/bugs-01-curved-paths-before-constraint.png',
     description: 'BUG-1 baseline: no constraints, edges are curved (dagre default)',
     constraints: `%% @layout-constraints v1
 %% @end-layout-constraints`,
     screenshot: '#after',
   },
   {
-    file: 'demos/bugs-01-curved-paths-after-constraint.png',
+    file: 'demos/bugs/bugs-01-curved-paths-after-constraint.png',
     description: 'BUG-1: D east-of C, 50 — edges should still be curved, not straight lines',
     constraints: `%% @layout-constraints v1
 %% D east-of C, 50
@@ -68,7 +68,7 @@ const scenarios = [
     screenshot: '#after',
   },
   {
-    file: 'demos/bugs-01-curved-paths-full-constraints.png',
+    file: 'demos/bugs/bugs-01-curved-paths-full-constraints.png',
     description: 'BUG-1: full default constraints — all edges curved, none replaced with M…L',
     constraints: `%% @layout-constraints v1
 %% align B, C, v
