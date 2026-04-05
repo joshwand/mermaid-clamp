@@ -17,6 +17,7 @@ const CONSTRAINT_BLOCK = `
 %% @layout-constraints v1
 %% align B, C, v
 %% D east-of C, 220
+%% align D, H, v
 %% align E, F, h
 %% E south-of C, 120
 %% H south-of D, 120
