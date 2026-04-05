@@ -11,9 +11,9 @@
  *   register text before rendering via setDiagramText(diagramId, text).
  */
 
-import { parseConstraints } from '../parser/index.js';
+import { parseConstraints, splitEdgeId } from '../parser/index.js';
 import { solveConstraints } from '../solver/index.js';
-import type { LayoutAlgorithm, LayoutLoaderDefinition, LayoutNode } from '../types.js';
+import type { LayoutAlgorithm, LayoutLoaderDefinition, LayoutNode, WaypointDeclaration } from '../types.js';
 
 // ── Side-channel ──────────────────────────────────────────────────────────────
 
@@ -420,6 +420,262 @@ export function reRouteEdgesInSVG(
   }
 }
 
+// ── Waypoint edge routing ─────────────────────────────────────────────────────
+
+/**
+ * Build a smooth catmull-rom spline SVG path through an ordered sequence of
+ * points. Interior points are passed through exactly; endpoints have zero
+ * tangent (the phantom endpoints are duplicated).
+ *
+ * Returns an SVG `d` string.
+ */
+export function buildSplinePath(points: Array<{ x: number; y: number }>): string {
+  if (points.length === 0) return '';
+  const r = (n: number) => Math.round(n * 100) / 100;
+
+  if (points.length === 1) {
+    return `M${r(points[0].x)},${r(points[0].y)}`;
+  }
+
+  if (points.length === 2) {
+    return `M${r(points[0].x)},${r(points[0].y)}L${r(points[1].x)},${r(points[1].y)}`;
+  }
+
+  // Convert catmull-rom to cubic bezier for each segment.
+  // Phantom endpoints: p[-1] = p[0], p[n] = p[n-1].
+  let d = `M${r(points[0].x)},${r(points[0].y)}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+    d += `C${r(cp1x)},${r(cp1y)},${r(cp2x)},${r(cp2y)},${r(p2.x)},${r(p2.y)}`;
+  }
+  return d;
+}
+
+/**
+ * Re-route a single edge `<path>` element through an ordered sequence of
+ * waypoint positions.
+ *
+ * The path becomes: exitPt(src) → wp[0] → wp[1] → … → adjustedEntry(tgt).
+ *
+ * Both exitPt and entryPt are computed on the node borders facing the
+ * adjacent waypoint (or the other endpoint if no waypoints). The entry
+ * point is pulled back by ARROW_MARGIN for the arrowhead.
+ *
+ * The edge label element (identified by `data-id="<edgeId>"`) is relocated to
+ * the geometric midpoint of the new path.
+ */
+export function routeEdgeThroughWaypoints(
+  svgEl: Element,
+  pathEl: Element,
+  edgeId: string,
+  waypointPositions: Array<{ x: number; y: number }>,
+  src: LayoutNode,
+  tgt: LayoutNode,
+): void {
+  // Exit point: src border facing first waypoint (or tgt if no waypoints).
+  const firstTarget = waypointPositions[0] ?? { x: tgt.x, y: tgt.y };
+  const exitPt = rectBorderPoint(src.x, src.y, src.width, src.height, firstTarget.x, firstTarget.y);
+
+  // Entry point: tgt border facing last waypoint (or src if no waypoints).
+  const lastSource = waypointPositions.length > 0
+    ? waypointPositions[waypointPositions.length - 1]
+    : { x: src.x, y: src.y };
+  const entryPt = rectBorderPoint(tgt.x, tgt.y, tgt.width, tgt.height, lastSource.x, lastSource.y);
+
+  // Pull entry point back by ARROW_MARGIN along the incoming direction.
+  const dxIn = entryPt.x - lastSource.x;
+  const dyIn = entryPt.y - lastSource.y;
+  const distIn = Math.hypot(dxIn, dyIn);
+  let adjustedEntry = entryPt;
+  if (distIn > ARROW_MARGIN) {
+    adjustedEntry = {
+      x: entryPt.x - (dxIn / distIn) * ARROW_MARGIN,
+      y: entryPt.y - (dyIn / distIn) * ARROW_MARGIN,
+    };
+  }
+
+  const allPoints = [exitPt, ...waypointPositions, adjustedEntry];
+  pathEl.setAttribute('d', buildSplinePath(allPoints));
+
+  // Reposition edge label to the geometric midpoint of the new path.
+  const labelEl = svgEl.querySelector(`[data-id="${cssEscapeId(edgeId)}"]`);
+  if (labelEl) {
+    const transform = labelEl.getAttribute('transform');
+    if (transform && parseTranslate(transform)) {
+      const midX = (exitPt.x + entryPt.x) / 2;
+      const midY = (exitPt.y + entryPt.y) / 2;
+      labelEl.setAttribute('transform', transform.replace(TRANSLATE_RE, formatTranslate(midX, midY)));
+    }
+  }
+}
+
+/**
+ * After constraint solving, route edges that have waypoint declarations
+ * through the resolved waypoint positions.
+ *
+ * Waypoints on the same edge are processed in the order they appear in
+ * `waypointDecls` (which preserves parse order = user-specified order).
+ *
+ * Edges without waypoints are left untouched by this function
+ * (they are already handled by `reRouteEdgesInSVG`).
+ */
+export function routeEdgesWithWaypoints(
+  svgEl: Element,
+  solvedNodes: LayoutNode[],
+  waypointDecls: WaypointDeclaration[],
+  edges: EdgeDataEntry[],
+  diagramId: string,
+): void {
+  if (waypointDecls.length === 0) return;
+
+  const solvedMap = new Map(solvedNodes.map((n) => [n.id, n]));
+
+  // Group waypoints by their (source, target) edge key, preserving order.
+  const waypointsByEdge = new Map<string, Array<{ decl: WaypointDeclaration; pos: LayoutNode }>>();
+  for (const decl of waypointDecls) {
+    const pos = solvedMap.get(decl.waypointId);
+    if (!pos) continue;
+    // Use the raw edgeId as the map key (source-->target).
+    const entry = waypointsByEdge.get(decl.edgeId) ?? [];
+    entry.push({ decl, pos });
+    waypointsByEdge.set(decl.edgeId, entry);
+  }
+
+  if (waypointsByEdge.size === 0) return;
+
+  for (const edge of edges) {
+    const srcId = edge.start ?? edge.v;
+    const tgtId = edge.end ?? edge.w;
+    if (!srcId || !tgtId) continue;
+
+    // Find the waypoints declared for this edge. The edgeId in the declaration
+    // uses the original arrow style; try all stored edgeIds to find a match.
+    let matchedWaypoints: Array<{ decl: WaypointDeclaration; pos: LayoutNode }> | undefined;
+    for (const [edgeKey, wps] of waypointsByEdge) {
+      const parsed = splitEdgeId(edgeKey);
+      if (parsed && parsed.source === srcId && parsed.target === tgtId) {
+        matchedWaypoints = wps;
+        break;
+      }
+    }
+    if (!matchedWaypoints || matchedWaypoints.length === 0) continue;
+
+    const src = solvedMap.get(srcId);
+    const tgt = solvedMap.get(tgtId);
+    if (!src || !tgt) continue;
+
+    const edgeId = edge.id ?? `L_${srcId}_${tgtId}_0`;
+    const pathEl = svgEl.querySelector(`[id="${cssEscapeId(`${diagramId}-${edgeId}`)}"]`);
+    if (!pathEl) continue;
+
+    const waypointPositions = matchedWaypoints.map((w) => ({ x: w.pos.x, y: w.pos.y }));
+    routeEdgeThroughWaypoints(svgEl, pathEl, edgeId, waypointPositions, src, tgt);
+  }
+}
+
+/**
+ * Create zero-size LayoutNode entries for each waypoint declaration.
+ * The initial position is the geometric midpoint of the corresponding edge path.
+ * If the edge path cannot be found, the waypoint is placed at the midpoint
+ * between the source and target node centers.
+ */
+export function buildWaypointNodes(
+  waypointDecls: WaypointDeclaration[],
+  edges: EdgeDataEntry[],
+  svgEl: Element,
+  diagramId: string,
+  solvedNodes: LayoutNode[],
+): LayoutNode[] {
+  const solvedMap = new Map(solvedNodes.map((n) => [n.id, n]));
+  const result: LayoutNode[] = [];
+
+  for (const decl of waypointDecls) {
+    const parsed = splitEdgeId(decl.edgeId);
+    if (!parsed) continue;
+
+    // Find the edge matching this declaration.
+    const edge = edges.find((e) => {
+      const s = e.start ?? e.v;
+      const t = e.end ?? e.w;
+      return s === parsed.source && t === parsed.target;
+    });
+
+    let initX: number;
+    let initY: number;
+
+    if (edge) {
+      const edgeId = edge.id ?? `L_${parsed.source}_${parsed.target}_0`;
+      const pathEl = svgEl.querySelector(`[id="${cssEscapeId(`${diagramId}-${edgeId}`)}"]`);
+      const d = pathEl?.getAttribute('d') ?? null;
+      const mid = d ? getPathMidpoint(d) : null;
+      if (mid) {
+        initX = mid.x;
+        initY = mid.y;
+      } else {
+        // Fall back to midpoint between source and target node centers.
+        const src = solvedMap.get(parsed.source);
+        const tgt = solvedMap.get(parsed.target);
+        initX = src && tgt ? (src.x + tgt.x) / 2 : 0;
+        initY = src && tgt ? (src.y + tgt.y) / 2 : 0;
+      }
+    } else {
+      const src = solvedMap.get(parsed.source);
+      const tgt = solvedMap.get(parsed.target);
+      initX = src && tgt ? (src.x + tgt.x) / 2 : 0;
+      initY = src && tgt ? (src.y + tgt.y) / 2 : 0;
+    }
+
+    result.push({
+      id: decl.waypointId,
+      x: initX,
+      y: initY,
+      width: 0,
+      height: 0,
+      isWaypoint: true,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Return the approximate midpoint of an SVG path by averaging all coordinate
+ * pairs (ignoring arc parameters). Used to seed waypoint initial positions.
+ */
+function getPathMidpoint(d: string): { x: number; y: number } | null {
+  const segs = parsePathSegments(d);
+  const pairs: Array<{ x: number; y: number }> = [];
+
+  for (const { cmd, nums } of segs) {
+    const upper = cmd.toUpperCase();
+    if (upper === 'Z') continue;
+    if (upper === 'A') {
+      for (let i = 0; i + 6 < nums.length; i += 7) {
+        pairs.push({ x: nums[i + 5], y: nums[i + 6] });
+      }
+    } else {
+      for (let i = 0; i + 1 < nums.length; i += 2) {
+        pairs.push({ x: nums[i], y: nums[i + 1] });
+      }
+    }
+  }
+
+  if (pairs.length === 0) return null;
+  // Use midpoint of first and last pair as an approximation.
+  const first = pairs[0];
+  const last = pairs[pairs.length - 1];
+  return { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
+}
+
 // ── Constraint application (testable without DOM) ─────────────────────────────
 
 /**
@@ -493,15 +749,26 @@ const constrainedDagreAlgorithm = {
     const nodes = extractPositionsFromSVG(layoutData.nodes, svgEl);
     if (nodes.length === 0) return;
 
-    // Step 4: Solve constraints.
-    const solved = solveConstraints(nodes, cs);
+    const edges = (layoutData as { edges?: EdgeDataEntry[] }).edges ?? [];
 
-    // Step 5: Write corrected positions back to SVG transforms.
+    // Step 3b: Extract waypoint declarations; inject shadow nodes at initial positions.
+    const waypointDecls = cs.constraints.filter(
+      (c): c is WaypointDeclaration => c.type === 'waypoint',
+    );
+    const waypointNodes = buildWaypointNodes(waypointDecls, edges, svgEl, diagramId, nodes);
+    const allNodes = [...nodes, ...waypointNodes];
+
+    // Step 4: Solve constraints (waypoint shadow nodes participate as zero-size nodes).
+    const solved = solveConstraints(allNodes, cs);
+
+    // Step 5: Write corrected positions back to SVG transforms (waypoints have no DOM element).
     applyPositionsToSVG(solved, svgEl, layoutData.nodes);
 
-    // Step 6: Re-route edge paths so arrows stay connected to their (moved) nodes.
-    const edges = (layoutData as { edges?: EdgeDataEntry[] }).edges ?? [];
+    // Step 6: Re-route edge paths for moved nodes (skips edges handled by waypoint router).
     reRouteEdgesInSVG(svgEl, nodes, solved, edges, diagramId);
+
+    // Step 7: Route edges with waypoints through their resolved waypoint positions.
+    routeEdgesWithWaypoints(svgEl, solved, waypointDecls, edges, diagramId);
   },
 };
 

@@ -205,7 +205,7 @@ function parseAnchor(tokens: string[]): AnchorConstraint | null {
  * Split an edge ID string like "A-->B" into { source, arrow, target }.
  * Returns null if the string doesn't match any known arrow style.
  */
-function splitEdgeId(edgeId: string): { source: string; arrow: string; target: string } | null {
+export function splitEdgeId(edgeId: string): { source: string; arrow: string; target: string } | null {
   for (const arrow of ARROWS_SORTED) {
     const idx = edgeId.indexOf(arrow);
     if (idx === -1) continue;
