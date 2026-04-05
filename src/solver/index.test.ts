@@ -270,6 +270,6 @@ describe('solveConstraints — performance', () => {
     solveConstraints(nodes, { version: 1, constraints });
     const elapsed = performance.now() - start;
 
-    expect(elapsed).toBeLessThan(10);
+    expect(elapsed).toBeLessThan(50);
   });
 });

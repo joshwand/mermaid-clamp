@@ -75,12 +75,6 @@ function moveNode(
   }
 }
 
-/** Displacement of a node from its base (original) position on an axis. */
-function displacement(node: SolverNode, base: Map<string, LayoutNode>, axis: 'x' | 'y'): number {
-  const b = base.get(node.id);
-  return b ? Math.abs(node[axis] - b[axis]) : 0;
-}
-
 // ── Constraint application passes ────────────────────────────────────────────
 
 function applyAnchors(
@@ -101,7 +95,6 @@ function applyAlignments(
   constraints: Constraint[],
   nodeMap: Map<string, SolverNode>,
   peers: GroupPeers,
-  base: Map<string, LayoutNode>,
 ): void {
   for (const c of constraints) {
     if (c.type !== 'align') continue;
@@ -110,37 +103,15 @@ function applyAlignments(
     if (nodes.length < 2) continue;
 
     const axis = c.axis === 'h' ? 'y' : 'x';
-    const hasAnchored = nodes.some((n) => n.anchored);
 
-    // For h-alignment (same y) with no anchored nodes:
-    //   - If any node has been displaced in Y by a prior constraint, use max-y
-    //     so that directionally-placed nodes below the group's natural position
-    //     pull all members down.
-    //   - If no node has been displaced in Y, use min-y so that nodes lower in
-    //     the dagre layout are pulled up to the topmost member's position.
-    //
-    // For v-alignment (same x) or any alignment containing an anchored node:
-    // use a weighted average; anchored nodes dominate with weight 1e6.
-    let target: number;
-    if (axis === 'y' && !hasAnchored) {
-      const anyYDisplaced = nodes.some((n) => Math.abs(n.y - (base.get(n.id)?.y ?? n.y)) >= CONVERGENCE_THRESHOLD);
-      target = anyYDisplaced
-        ? Math.max(...nodes.map((n) => n.y))
-        : Math.min(...nodes.map((n) => n.y));
-    } else {
-      let targetSum = 0;
-      let weightSum = 0;
-      for (const node of nodes) {
-        const disp = node.anchored ? 0 : displacement(node, base, axis);
-        const weight = node.anchored ? 1e6 : 1 / (1 + disp);
-        targetSum += node[axis] * weight;
-        weightSum += weight;
-      }
-      target = targetSum / weightSum;
-    }
+    // Anchored node wins as reference if one is present; otherwise the first
+    // listed node in the constraint is the reference and does not move.
+    // All other nodes shift to the reference's position on this axis.
+    const reference = nodes.find((n) => n.anchored) ?? nodes[0];
+    const target = reference[axis];
 
     for (const node of nodes) {
-      if (node.anchored) continue;
+      if (node === reference || node.anchored) continue;
       const delta = target - node[axis];
       if (Math.abs(delta) < CONVERGENCE_THRESHOLD) continue;
       if (axis === 'x') moveNode(node.id, delta, 0, nodeMap, peers);
@@ -183,41 +154,71 @@ function applyDirectionals(
 
 // ── Post-solve passes ─────────────────────────────────────────────────────────
 
+const REPULSION_MAX_ITERS = 20;
+
 /**
- * Push nodes that are still at their dagre (base) y-position downward if a
- * constrained node above them has moved into their space.
+ * Iteratively push overlapping node pairs apart until no bounding boxes
+ * intersect or the iteration limit is reached.
  *
- * Algorithm: sort nodes by their original dagre y; for each node whose solved
- * y hasn't moved from its base (i.e., it is unconstrained in y), check every
- * preceding node. If they x-overlap and the unconstrained node's y is too
- * close to the preceding node's solved bottom edge, push it down.
+ * Each overlapping pair is separated along the axis that requires the smaller
+ * translation (minimum overlap vector). Anchored nodes don't move; if one
+ * node of a pair is anchored the full push falls on the other.
+ *
+ * Group members are exempt from repulsion against each other — their relative
+ * positions are intentional and managed by `moveNode`.
+ *
+ * Waypoints (width = height = 0) are skipped — they have no physical extent.
  */
-function resolveVerticalOverlaps(
-  nodes: SolverNode[],
-  base: Map<string, LayoutNode>,
-): void {
-  const sorted = [...nodes].sort((a, b) => {
-    const ay = base.get(a.id)?.y ?? a.y;
-    const by_ = base.get(b.id)?.y ?? b.y;
-    return ay - by_;
-  });
+function resolveAllOverlaps(nodes: SolverNode[], peers: GroupPeers): void {
+  for (let iter = 0; iter < REPULSION_MAX_ITERS; iter++) {
+    let anyOverlap = false;
 
-  for (let i = 1; i < sorted.length; i++) {
-    const node = sorted[i];
-    if (node.anchored) continue;
-    const baseY = base.get(node.id)?.y ?? node.y;
-    // Only consider nodes that have not been moved in y by a constraint.
-    if (Math.abs(node.y - baseY) >= CONVERGENCE_THRESHOLD) continue;
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      if (a.width === 0 && a.height === 0) continue; // waypoint
 
-    for (let j = 0; j < i; j++) {
-      const prev = sorted[j];
-      const xGap = Math.abs(node.x - prev.x);
-      const xMinSep = (node.width + prev.width) / 2;
-      if (xGap >= xMinSep) continue; // no horizontal overlap — no conflict
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        if (b.width === 0 && b.height === 0) continue; // waypoint
 
-      const minY = prev.y + (prev.height + node.height) / 2 + OVERLAP_PADDING;
-      if (node.y < minY) node.y = minY;
+        // Skip group members — their relative positions are intentional.
+        if (peers.get(a.id)?.has(b.id)) continue;
+
+        const xOverlap = (a.width + b.width) / 2 - Math.abs(a.x - b.x);
+        const yOverlap = (a.height + b.height) / 2 - Math.abs(a.y - b.y);
+        if (xOverlap <= 0 || yOverlap <= 0) continue;
+
+        anyOverlap = true;
+
+        if (xOverlap < yOverlap) {
+          // Push apart horizontally.
+          const push = xOverlap + OVERLAP_PADDING;
+          const dir = a.x <= b.x ? 1 : -1; // dir > 0 means b is to the right
+          if (a.anchored && !b.anchored) {
+            b.x += dir * push;
+          } else if (!a.anchored && b.anchored) {
+            a.x -= dir * push;
+          } else if (!a.anchored && !b.anchored) {
+            a.x -= dir * push / 2;
+            b.x += dir * push / 2;
+          }
+        } else {
+          // Push apart vertically.
+          const push = yOverlap + OVERLAP_PADDING;
+          const dir = a.y <= b.y ? 1 : -1; // dir > 0 means b is below
+          if (a.anchored && !b.anchored) {
+            b.y += dir * push;
+          } else if (!a.anchored && b.anchored) {
+            a.y -= dir * push;
+          } else if (!a.anchored && !b.anchored) {
+            a.y -= dir * push / 2;
+            b.y += dir * push / 2;
+          }
+        }
+      }
     }
+
+    if (!anyOverlap) break;
   }
 }
 
@@ -240,7 +241,6 @@ export function solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet
 
   const working = cloneNodes(nodes);
   const nodeMap = buildNodeMap(working);
-  const base = new Map(nodes.map((n) => [n.id, { ...n }]));
   const peers = buildGroupPeers(constraints.constraints);
 
   // Step 1: Anchors — fixed, applied once before iteration.
@@ -254,7 +254,7 @@ export function solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet
     // nodes already reflect their constraint-driven positions. Alignment then
     // uses max-y to pull undisplaced nodes down to meet them.
     applyDirectionals(constraints.constraints, nodeMap, peers);
-    applyAlignments(constraints.constraints, nodeMap, peers, base);
+    applyAlignments(constraints.constraints, nodeMap, peers);
 
     // Convergence check.
     const maxDelta = working.reduce((max, n, i) => {
@@ -266,10 +266,8 @@ export function solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet
     if (maxDelta < CONVERGENCE_THRESHOLD) break;
   }
 
-  // Step 3: Push unconstrained nodes that ended up above constrained nodes
-  // that moved downward. Handles cases where a directional constraint moves a
-  // node below a sibling that dagre placed below it originally.
-  resolveVerticalOverlaps(working, base);
+  // Step 3: Push any overlapping node pairs apart.
+  resolveAllOverlaps(working, peers);
 
   // Return plain LayoutNodes (strip the internal `anchored` flag).
   return working.map(({ anchored: _anchored, ...n }) => n);

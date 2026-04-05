@@ -143,56 +143,52 @@ export function applyPositionsToSVG(
 
 // ── Edge re-routing ───────────────────────────────────────────────────────────
 
-/**
- * Extract all numbers from an SVG path `d` attribute, with their positions in
- * the string. Returns an array of {value, start, end} objects in source order.
- */
-function extractPathNumbers(d: string): Array<{ value: number; start: number; end: number }> {
-  const re = /-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
-  const nums: Array<{ value: number; start: number; end: number }> = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(d)) !== null) {
-    nums.push({ value: parseFloat(m[0]), start: m.index, end: m.index + m[0].length });
-  }
-  return nums;
-}
+const ARROW_MARGIN = 2; // px to pull the path end back from node border for arrowhead
 
 /**
- * Translate an SVG path's coordinate pairs so the first pair moves by
- * `srcDelta` and the last pair moves by `tgtDelta`. Intermediate pairs are
- * linearly interpolated. The path string is rebuilt in-place (same format,
- * same number of decimal places rounded to 2dp).
+ * Find the point on the border of a rectangle (cx, cy, w, h) that lies on the
+ * ray from the rectangle center toward (targetX, targetY). Returns a point on
+ * the nearest border face in that direction.
  *
- * Assumes dagre-style paths where all numbers appear as (x, y) pairs in order
- * (M, L, C, Q commands with absolute coordinates — no H/V/Z/A).
+ * For waypoints (w = h = 0) returns the waypoint center.
  */
-function translatePath(
-  d: string,
-  srcDelta: { dx: number; dy: number },
-  tgtDelta: { dx: number; dy: number },
-): string {
-  const nums = extractPathNumbers(d);
-  const nPairs = Math.floor(nums.length / 2);
-  if (nPairs === 0) return d;
+function rectBorderPoint(
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+  targetX: number,
+  targetY: number,
+): { x: number; y: number } {
+  if (w === 0 && h === 0) return { x: cx, y: cy }; // waypoint
 
-  // Compute shifted values
-  const newValues = nums.map((n) => n.value);
-  for (let i = 0; i < nPairs; i++) {
-    const t = nPairs === 1 ? 0.5 : i / (nPairs - 1);
-    newValues[i * 2] += srcDelta.dx * (1 - t) + tgtDelta.dx * t;
-    newValues[i * 2 + 1] += srcDelta.dy * (1 - t) + tgtDelta.dy * t;
+  const dx = targetX - cx;
+  const dy = targetY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy - h / 2 }; // same center
+
+  const halfW = w / 2;
+  const halfH = h / 2;
+  const best: { x: number; y: number; t: number }[] = [];
+
+  const tryBorder = (t: number, bx: number, by: number) => {
+    if (t <= 0) return;
+    if (Math.abs(bx - cx) <= halfW + 0.5 && Math.abs(by - cy) <= halfH + 0.5) {
+      best.push({ x: bx, y: by, t });
+    }
+  };
+
+  if (dx !== 0) {
+    tryBorder( halfW / dx, cx + halfW, cy + (halfW / dx) * dy);
+    tryBorder(-halfW / dx, cx - halfW, cy - (halfW / dx) * dy);
+  }
+  if (dy !== 0) {
+    tryBorder( halfH / dy, cx + (halfH / dy) * dx, cy + halfH);
+    tryBorder(-halfH / dy, cx - (halfH / dy) * dx, cy - halfH);
   }
 
-  // Rebuild the string, replacing each number token in-place
-  let result = '';
-  let lastEnd = 0;
-  for (let i = 0; i < nums.length; i++) {
-    result += d.slice(lastEnd, nums[i].start);
-    result += (Math.round(newValues[i] * 100) / 100).toString();
-    lastEnd = nums[i].end;
-  }
-  result += d.slice(lastEnd);
-  return result;
+  if (best.length === 0) return { x: cx, y: cy };
+  best.sort((a, b) => a.t - b.t);
+  return { x: best[0].x, y: best[0].y };
 }
 
 interface EdgeDataEntry {
@@ -205,12 +201,15 @@ interface EdgeDataEntry {
 }
 
 /**
- * After constraint solving moves nodes, update edge `<path d="...">` attributes
- * so edges remain connected to their (new) node positions.
+ * After constraint solving moves nodes, rewrite edge `<path d="...">` attributes
+ * so arrows connect the actual node borders of their (possibly moved) source and
+ * target nodes.
  *
- * Uses delta interpolation: path start is translated by the source node's
- * positional delta, path end by the target node's delta, intermediate
- * coordinate pairs are linearly interpolated.
+ * For each edge the path is replaced with a straight line from the exit point on
+ * the source node border to the entry point on the target node border. Both
+ * points lie on the rectangle border in the direction of the opposite node center.
+ *
+ * Edges whose endpoints did not move are left untouched.
  */
 export function reRouteEdgesInSVG(
   svgEl: Element,
@@ -219,50 +218,58 @@ export function reRouteEdgesInSVG(
   edges: EdgeDataEntry[],
   diagramId: string,
 ): void {
-  // Build delta map: nodeId → {dx, dy}
   const originalMap = new Map(originalNodes.map((n) => [n.id, n]));
-  const deltaMap = new Map<string, { dx: number; dy: number }>();
-  for (const solved of solvedNodes) {
-    const orig = originalMap.get(solved.id);
-    if (orig) {
-      deltaMap.set(solved.id, { dx: solved.x - orig.x, dy: solved.y - orig.y });
-    }
-  }
+  const solvedMap   = new Map(solvedNodes.map((n)   => [n.id, n]));
 
   for (const edge of edges) {
     const srcId = edge.start ?? edge.v;
     const tgtId = edge.end ?? edge.w;
     if (!srcId || !tgtId) continue;
 
-    const srcDelta = deltaMap.get(srcId) ?? { dx: 0, dy: 0 };
-    const tgtDelta = deltaMap.get(tgtId) ?? { dx: 0, dy: 0 };
-    if (srcDelta.dx === 0 && srcDelta.dy === 0 && tgtDelta.dx === 0 && tgtDelta.dy === 0) continue;
+    const src = solvedMap.get(srcId);
+    const tgt = solvedMap.get(tgtId);
+    if (!src || !tgt) continue;
 
-    // The SVG path element id = "{diagramId}-{edge.id}"
-    // edge.id follows the pattern "L_{srcId}_{tgtId}_{counter}" (mermaid flowchart default)
+    // Skip if neither endpoint moved.
+    const origSrc = originalMap.get(srcId);
+    const origTgt = originalMap.get(tgtId);
+    const srcMoved = origSrc ? Math.abs(src.x - origSrc.x) + Math.abs(src.y - origSrc.y) > 0.5 : false;
+    const tgtMoved = origTgt ? Math.abs(tgt.x - origTgt.x) + Math.abs(tgt.y - origTgt.y) > 0.5 : false;
+    if (!srcMoved && !tgtMoved) continue;
+
     const edgeId = edge.id ?? `L_${srcId}_${tgtId}_0`;
     const pathEl = svgEl.querySelector(`[id="${cssEscapeId(`${diagramId}-${edgeId}`)}"]`);
     if (!pathEl) continue;
 
-    const d = pathEl.getAttribute('d');
-    if (!d) continue;
+    // Compute where the line src.center → tgt.center intersects each node border.
+    const exitPt  = rectBorderPoint(src.x, src.y, src.width, src.height, tgt.x, tgt.y);
+    const entryPt = rectBorderPoint(tgt.x, tgt.y, tgt.width, tgt.height, src.x, src.y);
 
-    pathEl.setAttribute('d', translatePath(d, srcDelta, tgtDelta));
+    // Pull the entry point back by ARROW_MARGIN so the arrowhead tip lands on the border.
+    const edgeLen = Math.hypot(entryPt.x - exitPt.x, entryPt.y - exitPt.y);
+    let adjustedEntry = entryPt;
+    if (edgeLen > ARROW_MARGIN) {
+      const ux = (entryPt.x - exitPt.x) / edgeLen;
+      const uy = (entryPt.y - exitPt.y) / edgeLen;
+      adjustedEntry = { x: entryPt.x - ux * ARROW_MARGIN, y: entryPt.y - uy * ARROW_MARGIN };
+    }
 
-    // Also shift the edge label marker if present (data-id matches edge.id)
+    const r = (n: number) => Math.round(n * 100) / 100;
+    pathEl.setAttribute(
+      'd',
+      `M${r(exitPt.x)},${r(exitPt.y)}L${r(adjustedEntry.x)},${r(adjustedEntry.y)}`,
+    );
+
+    // Move edge label to the midpoint of the new path.
     const labelEl = svgEl.querySelector(`[data-id="${cssEscapeId(edgeId)}"]`);
     if (labelEl) {
       const transform = labelEl.getAttribute('transform');
       if (transform) {
+        const midX = (exitPt.x + entryPt.x) / 2;
+        const midY = (exitPt.y + entryPt.y) / 2;
         const pos = parseTranslate(transform);
         if (pos) {
-          const t = 0.5;
-          const dx = srcDelta.dx * (1 - t) + tgtDelta.dx * t;
-          const dy = srcDelta.dy * (1 - t) + tgtDelta.dy * t;
-          labelEl.setAttribute(
-            'transform',
-            transform.replace(TRANSLATE_RE, formatTranslate(pos.x + dx, pos.y + dy)),
-          );
+          labelEl.setAttribute('transform', transform.replace(TRANSLATE_RE, formatTranslate(midX, midY)));
         }
       }
     }

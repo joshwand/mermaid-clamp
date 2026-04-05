@@ -340,9 +340,8 @@ function makeEdgeSvg(
 }
 
 describe('reRouteEdgesInSVG', () => {
-  it('translates path start by source delta and end by target delta', () => {
+  it('rewrites path to straight line between node border points after movement', () => {
     const diagramId = 'test-diagram';
-    // Edge from A to B; path goes from (100,40) to (100,160)
     const svgEl = makeEdgeSvg(
       [
         { id: 'A', transform: 'translate(100, 20)' },
@@ -352,24 +351,39 @@ describe('reRouteEdgesInSVG', () => {
     );
 
     const originalNodes: LayoutNode[] = [
-      { id: 'A', x: 100, y: 20, width: 80, height: 40 },
+      { id: 'A', x: 100, y: 20,  width: 80, height: 40 },
       { id: 'B', x: 100, y: 180, width: 80, height: 40 },
     ];
     // A moves right 50px; B moves down 30px
     const solvedNodes: LayoutNode[] = [
-      { id: 'A', x: 150, y: 20, width: 80, height: 40 },
+      { id: 'A', x: 150, y: 20,  width: 80, height: 40 },
       { id: 'B', x: 100, y: 210, width: 80, height: 40 },
     ];
 
     reRouteEdgesInSVG(svgEl, originalNodes, solvedNodes, [{ id: 'L_A_B_0', start: 'A', end: 'B' }], diagramId);
 
-    const pathEl = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`);
-    const d = pathEl?.getAttribute('d') ?? '';
+    const d = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`)?.getAttribute('d') ?? '';
+    const nums = d.match(/-?[\d.]+/g)?.map(Number) ?? [];
 
-    // Path starts with "M {new_start_x},{new_start_y}" — first point shifted by A's delta (+50, 0)
-    expect(d).toMatch(/^M\s+150[,\s]/);
-    // Path ends at approx (100, 190) — last point shifted by B's delta (0, +30)
-    expect(d).toMatch(/190\s*$/);
+    // Path is a straight line: M <exit> L <entry> — exactly 4 numbers
+    expect(nums).toHaveLength(4);
+
+    // Start point must lie on A's border
+    const [x0, y0] = nums;
+    const A = solvedNodes[0];
+    const onABorder =
+      (Math.abs(x0 - A.x) <= A.width / 2 + 0.5) &&
+      (Math.abs(y0 - A.y) <= A.height / 2 + 0.5) &&
+      (Math.abs(x0 - A.x) === A.width / 2 || Math.abs(y0 - A.y) === A.height / 2);
+    expect(onABorder).toBe(true);
+
+    // End point must be near B's border (within ARROW_MARGIN of it)
+    const [x1, y1] = [nums[2], nums[3]];
+    const B = solvedNodes[1];
+    const nearBBorder =
+      (Math.abs(x1 - B.x) <= B.width / 2 + 2 + 0.5) &&
+      (Math.abs(y1 - B.y) <= B.height / 2 + 2 + 0.5);
+    expect(nearBBorder).toBe(true);
   });
 
   it('leaves path unchanged when no nodes moved', () => {
@@ -417,11 +431,12 @@ describe('reRouteEdgesInSVG', () => {
 
     const d = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`)?.getAttribute('d') ?? '';
     const nums = d.match(/-?[\d.]+/g)?.map(Number) ?? [];
-    // After shifting +80px horizontally: start=(280,60), end=(280,160)
+    // After rerouting: start=(280,60) — A's bottom center, end≈(280,160) — near B's top center
     expect(nums[0]).toBeCloseTo(280, 0); // start x
-    expect(nums[1]).toBeCloseTo(60, 0);  // start y (unchanged)
+    expect(nums[1]).toBeCloseTo(60, 0);  // start y = A.bottom
     expect(nums[2]).toBeCloseTo(280, 0); // end x
-    expect(nums[3]).toBeCloseTo(160, 0); // end y (unchanged)
+    // end y is pulled back by ARROW_MARGIN from B's top border (160), so ≈158
+    expect(nums[3]).toBeCloseTo(158, 0);
 
     // Start point (280, 60) should be on the border of solved node A (center 280,40, h=40)
     const srcNode = solvedNodes.find((n) => n.id === 'A')!;
