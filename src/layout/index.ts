@@ -92,12 +92,25 @@ export function extractPositionsFromSVG(
     if (!el) continue;
     const pos = parseTranslate(el.getAttribute('transform'));
     if (!pos) continue;
+
+    // Prefer dimensions from the SVG rect (mermaid's layoutData often has
+    // width=0/height=0); fall back to layoutData values if the rect is absent.
+    let width = node.width ?? 0;
+    let height = node.height ?? 0;
+    const rectEl = el.querySelector('rect');
+    if (rectEl) {
+      const rw = parseFloat(rectEl.getAttribute('width') ?? '');
+      const rh = parseFloat(rectEl.getAttribute('height') ?? '');
+      if (!isNaN(rw) && rw > 0) width = rw;
+      if (!isNaN(rh) && rh > 0) height = rh;
+    }
+
     result.push({
       id: node.id,
       x: pos.x,
       y: pos.y,
-      width: node.width ?? 0,
-      height: node.height ?? 0,
+      width,
+      height,
     });
   }
   return result;
