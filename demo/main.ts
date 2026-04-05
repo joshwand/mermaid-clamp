@@ -15,9 +15,12 @@ const BASE_DIAGRAM = `flowchart TD
 
 const CONSTRAINT_BLOCK = `
 %% @layout-constraints v1
-%% align D, F, h
-%% align H, G, v
-%% G south-of H, 300
+%% align B, C, v
+%% D east-of C, 220
+%% align E, F, h
+%% E south-of C, 120
+%% H south-of D, 120
+%% align G, H, h
 %% @end-layout-constraints`;
 
 const DIAGRAM_WITH_CONSTRAINTS = BASE_DIAGRAM + '\n' + CONSTRAINT_BLOCK;

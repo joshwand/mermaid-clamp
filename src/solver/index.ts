@@ -109,19 +109,28 @@ function applyAlignments(
     if (nodes.length < 2) continue;
 
     const axis = c.axis === 'h' ? 'y' : 'x';
+    const hasAnchored = nodes.some((n) => n.anchored);
 
-    // Target: weighted average of positions, weighted inversely by displacement
-    // (nodes displaced less pull more strongly toward their position).
-    // Anchored nodes always contribute with full weight.
-    let targetSum = 0;
-    let weightSum = 0;
-    for (const node of nodes) {
-      const disp = node.anchored ? 0 : displacement(node, base, axis);
-      const weight = node.anchored ? 1e6 : 1 / (1 + disp);
-      targetSum += node[axis] * weight;
-      weightSum += weight;
+    // For h-alignment (same y) with no anchored nodes: use the maximum y value
+    // so that directionally-placed nodes below the group's natural position pull
+    // all members down, rather than averaging them upward.
+    //
+    // For v-alignment (same x) or any alignment containing an anchored node:
+    // use a weighted average; anchored nodes dominate with weight 1e6.
+    let target: number;
+    if (axis === 'y' && !hasAnchored) {
+      target = Math.max(...nodes.map((n) => n.y));
+    } else {
+      let targetSum = 0;
+      let weightSum = 0;
+      for (const node of nodes) {
+        const disp = node.anchored ? 0 : displacement(node, base, axis);
+        const weight = node.anchored ? 1e6 : 1 / (1 + disp);
+        targetSum += node[axis] * weight;
+        weightSum += weight;
+      }
+      target = targetSum / weightSum;
     }
-    const target = targetSum / weightSum;
 
     for (const node of nodes) {
       if (node.anchored) continue;
@@ -193,8 +202,11 @@ export function solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     const snapshot = working.map((n) => ({ x: n.x, y: n.y }));
 
-    applyAlignments(constraints.constraints, nodeMap, peers, base);
+    // Directionals run first so that by the time alignments execute, displaced
+    // nodes already reflect their constraint-driven positions. Alignment then
+    // uses max-y to pull undisplaced nodes down to meet them.
     applyDirectionals(constraints.constraints, nodeMap, peers);
+    applyAlignments(constraints.constraints, nodeMap, peers, base);
 
     // Convergence check.
     const maxDelta = working.reduce((max, n, i) => {
