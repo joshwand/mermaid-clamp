@@ -90,15 +90,72 @@ Key source files to study:
 
 ## Verification Workflow (Showboat + Rodney)
 
-At each implementation milestone, the agent must:
+### Naming Convention
 
-1. Build a Showboat demo document (`showboat init demos/task-NN.md`)
-2. Add narrative context (`showboat note demos/task-NN.md "..."`)
-3. Execute test commands and capture output (`showboat exec demos/task-NN.md bash "pnpm test -- --reporter=verbose"`)
-4. For visual tasks (editor, affordances), use Rodney to:
-   - Serve the test HTML page (`rodney open http://localhost:...`)
-   - Capture screenshots (`rodney screenshot demos/task-NN-screenshot.png`)
-   - Embed in Showboat doc (`showboat image demos/task-NN.md demos/task-NN-screenshot.png`)
-5. **Human reviews the Showboat document before agent proceeds to next task**
+All demo screenshot files follow: **`task-NN-NN-description.png`**
+- First `NN` = task number (matches task-NN.md)
+- Second `NN` = scenario number within that task (01, 02, ...)
+- `description` = brief kebab-case description of what the scenario proves
 
-This creates a verifiable trail of what was built and what it actually looks like, beyond just "tests pass."
+Examples: `task-05-02-default-after.png`, `task-06-01-arrow-routing.png`
+
+**Rules:**
+- No intermediate/diagnostic files committed. If a fix changes the output, delete all `task-NN-*.png` for that task and regenerate from scratch.
+- Maintain a numbered list of scenarios in the task-NN.md; each scenario has its own screenshot.
+
+### Demo Document Requirements
+
+Every task-NN.md must:
+
+1. **State what is being demonstrated** — describe the feature/module at the top.
+2. **Include test output** — run `pnpm test` and embed the result verbatim.
+3. **Cover all relevant scenarios** — one screenshot per scenario; scenarios must collectively prove:
+   - The feature works correctly (happy path)
+   - Edge cases and variant inputs work
+   - Nothing previously working is broken (regression)
+   - The spec is followed exactly (e.g., correct semantics, no overlaps)
+4. **Be verbose enough to prove it** — if in doubt, add another scenario.
+5. **Include a key implementation facts table** — summarise the critical behaviours.
+
+Your job is to **PROVE** that the work was implemented completely, correctly, follows the spec, and did not break anything else.
+
+### Screenshot Capture Pattern
+
+Use Playwright (available at `/opt/node22/lib/node_modules/playwright/index.mjs`) against the Vite dev server. Always check which port the server started on (5173 or 5174 if busy).
+
+```js
+import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+const browser = await chromium.launch();
+const page = await browser.newPage();
+await page.setViewportSize({ width: 1400, height: 900 });
+await page.goto('http://localhost:5173/demo/');
+await page.waitForTimeout(4000); // wait for initial render
+
+// Change constraints
+await page.fill('#constraint-source', constraintsText);
+await page.dispatchEvent('#constraint-source', 'input');
+await page.waitForTimeout(2000); // wait for debounce + render
+
+// Full viewport
+await page.screenshot({ path: 'demos/task-NN-NN-description.png' });
+
+// Single panel
+const after = await page.$('#after');
+await after.screenshot({ path: 'demos/task-NN-NN-after-panel.png' });
+```
+
+Use **subagents** to run the capture session — this keeps the main agent's context clean and avoids context bloat from large screenshot data.
+
+### What Each Task Demo Must Prove
+
+Scenarios to always include for layout-engine tasks:
+- Default constraints render correctly (before + after side-by-side)
+- Each constraint type used in the task renders correctly in isolation
+- **No overlaps** in any scenario (visually verify + solver test assertions)
+- Alignment first-is-anchor rule works (first node = reference, others move)
+- Directional distances are edge-to-edge (not center-to-center)
+- Arrow routing connects to node borders correctly
+- Warnings surface in the status bar for malformed constraints
+- Live editor textarea triggers re-render
+
+At the end of every task, **delete all task-NN-*.png and regenerate all scenarios from scratch** to ensure all screenshots reflect the current implementation.

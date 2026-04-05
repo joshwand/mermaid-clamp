@@ -4,65 +4,143 @@
 
 `constrained-dagre` is a custom mermaid layout algorithm that:
 
-1. Runs dagre first to get base node positions from SVG transforms
-2. Reads actual node dimensions from the SVG `<rect>` elements
-3. Applies constraint solving (alignment, directional, anchor, group)
-4. Writes corrected positions back to SVG transforms
-5. Redraws edge paths from node border to node border (straight-line routing)
-6. Runs an overlap repulsion pass to push any colliding nodes apart
+1. Runs stock dagre to get base node positions from SVG transforms
+2. Reads actual node dimensions from SVG `<rect>` elements (mermaid's `layoutData.nodes` always has `width=height=0`)
+3. Applies constraint solving: alignment (first-is-anchor), directional (edge-to-edge), anchor, group
+4. Writes corrected transforms back to the SVG
+5. Redraws edge paths as straight border-to-border lines using `rectBorderPoint`
+6. Runs an overlap repulsion pass — **no two nodes are ever allowed to overlap**
+7. Surfaces parser warnings via `getAndClearWarnings()` into the page status bar
 
-The live editor at `demo/index.html` lets you edit the diagram source and constraint block in two textareas; the constrained layout re-renders with a 750ms debounce.
+The live editor at `demo/index.html` renders both dagre (before) and constrained-dagre (after) side-by-side, with 750ms-debounced textareas for live editing of diagram source and constraints.
+
+---
 
 ## Test results
 
-```bash
-pnpm test -- --reporter=verbose 2>&1 | tail -14
+```
+pnpm test
 ```
 
-```output
- ✓ src/solver/index.test.ts (20 tests) 35ms
- ✓ src/parser/index.test.ts (30 tests) 33ms
- ✓ src/index.test.ts (7 tests) 8ms
- ✓ src/serializer/index.test.ts (21 tests) 29ms
- ✓ src/layout/index.test.ts (25 tests) 41ms
+```
+ ✓ src/solver/index.test.ts (20 tests)
+ ✓ src/parser/index.test.ts (30 tests)
+ ✓ src/serializer/index.test.ts (21 tests)
+ ✓ src/index.test.ts (7 tests)
+ ✓ src/layout/index.test.ts (25 tests)
 
  Test Files  5 passed (5)
       Tests  103 passed (103)
 ```
 
-## Default demo constraints
+---
 
+## Scenario 1 — Default constraints: before/after side by side
+
+Constraints applied:
 ```
-%% @layout-constraints v1
-%% align B, C, v        → C moves to B's column (same X)
-%% D east-of C, 50      → D placed 50px gap east of C (edge-to-edge)
-%% align D, H, v        → H moves to D's column
-%% align E, F, h        → F moves to E's row (E is reference)
-%% E south-of C, 20     → E placed 20px gap below C (edge-to-edge)
-%% H south-of D, 20     → H placed 20px gap below D
-%% align G, H, h        → H moves to G's row (G is reference)
-%% @end-layout-constraints
+align B, C, v       → C moves to B's column
+D east-of C, 50     → D placed 50px edge-to-edge east of C
+align D, H, v       → H moves to D's column
+align E, F, h       → F moves to E's row (E is reference/anchor)
+E south-of C, 20    → E placed 20px edge-to-edge below C
+H south-of D, 20    → H placed 20px edge-to-edge below D
+align G, H, h       → H moves to G's row (G is reference/anchor)
 ```
 
-Alignment rule: the **first listed node is the reference** and does not move; subsequent nodes shift to match it.
+![Default constraints — before and after side by side](task-05-01-default-side-by-side.png)
 
-## Before (dagre) vs After (constrained-dagre)
+---
 
-![Before and after side by side with live editor](task-05-before-after.png)
+## Scenario 2 — Default constraints: constrained layout (after panel)
 
-## Constrained layout — after panel
+No overlaps. D is right of C. E/F row-aligned. G/H row-aligned.
 
-![Constrained layout showing D right-of C, E/F aligned, G/H aligned](task-05-after-panel.png)
+![Constrained layout — after panel](task-05-02-default-after.png)
 
-## Full live editor (with source textareas)
+---
 
-![Live editor showing diagram source and constraint textareas](task-05-editor.png)
+## Scenario 3 — Dagre baseline (before panel)
 
-## Key implementation notes
+Stock dagre layout — no constraints applied.
 
-- **Side-channel**: mermaid's `LayoutData` carries no diagram text, so callers call `setDiagramText(id, text)` before `mermaid.render()`.
-- **Node dimensions**: `layoutData.nodes` always has `width=height=0`; actual sizes are read from the SVG `<rect>` element.
-- **Distances are edge-to-edge**: `D east-of C, 50` means a 50px gap between C's right edge and D's left edge (not center-to-center).
-- **Overlap repulsion**: after solving, any overlapping pair is pushed apart along the minimum-overlap axis.
-- **Arrow routing**: edge paths are redrawn as straight lines from the source node border to the target node border, using `rectBorderPoint` to find the correct exit/entry points.
-- **Warnings**: parser warnings are collected in `ConstraintSet.warnings`; call `getAndClearWarnings()` after render to surface them.
+![Dagre baseline — before panel](task-05-03-default-before.png)
+
+---
+
+## Scenario 4 — `align B, D, h`: first-is-anchor rule
+
+B is listed first → B is the reference. D moves **up** to B's row.
+Overlap repulsion then pushes B and D apart horizontally (they would otherwise collide).
+
+![align B, D, h — D moves up to B's row; repulsion separates them](task-05-04-align-h-first-is-anchor.png)
+
+---
+
+## Scenario 5 — `align G, H, h`: second node follows first
+
+G is listed first → G is the reference. H moves **down** to G's row.
+
+![align G, H, h — H moves down to G's row](task-05-05-align-h-second-follows.png)
+
+---
+
+## Scenario 6 — `align B, C, v`: vertical alignment (same column)
+
+B is first → reference. C shifts left to B's x-center.
+
+![align B, C, v — C moves to B's column](task-05-06-align-v.png)
+
+---
+
+## Scenario 7 — `D east-of C, 50`: directional, edge-to-edge
+
+50px gap between C's right edge and D's left edge (not center-to-center).
+
+![D east-of C, 50 — 50px edge-to-edge gap](task-05-07-east-of.png)
+
+---
+
+## Scenario 8 — `E south-of C, 20`: directional, edge-to-edge
+
+20px gap between C's bottom edge and E's top edge.
+
+![E south-of C, 20 — 20px edge-to-edge gap](task-05-08-south-of.png)
+
+---
+
+## Scenario 9 — Overlap repulsion with dual h-alignment
+
+`align B, D, h` pulls D up to B's row; `align G, H, h` pulls H down to G's row.
+B and D are now at the same Y — repulsion pushes them apart horizontally. No overlap.
+
+![Dual h-align with repulsion — B/D and G/H at same rows, no overlap](task-05-09-overlap-repulsion.png)
+
+---
+
+## Scenario 10 — Warning surfaced in status bar
+
+Malformed constraint line is skipped; warning appears in the yellow status bar.
+
+![Malformed constraint — warning shown in status bar](task-05-10-warnings.png)
+
+---
+
+## Scenario 11 — Full live editor
+
+Both textareas visible; diagram and constraints are editable; re-renders on input with 750ms debounce.
+
+![Full live editor with textareas](task-05-11-live-editor.png)
+
+---
+
+## Key implementation facts
+
+| Property | Value |
+|---|---|
+| Alignment rule | First node listed = reference (does not move); others shift to it |
+| Distance semantics | Edge-to-edge (not center-to-center) |
+| No-overlap guarantee | `resolveAllOverlaps` repulsion pass runs after every solve |
+| Arrow routing | `rectBorderPoint` straight-line routing from node border to node border |
+| Node dimensions | Read from SVG `<rect>` (layoutData always gives 0) |
+| Warning API | `getAndClearWarnings()` after `mermaid.render()` |

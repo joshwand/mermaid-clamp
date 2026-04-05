@@ -132,12 +132,76 @@ The solver is **not** guaranteed to converge for adversarial inputs (e.g., circu
 - After cap, use current positions (which will be a partial solution)
 - Log a warning listing the non-converged constraints
 
+## Invariant: No Overlapping Nodes
+
+**NO OVERLAPS ARE EVER ALLOWED.** This is a hard requirement.
+
+After the iterative relaxation loop, a post-solve `resolveAllOverlaps` pass is applied:
+
+```
+function resolveAllOverlaps(nodes):
+  for iteration = 0 to REPULSION_MAX_ITERS (20):
+    anyOverlap = false
+    for each pair (a, b) where a.width > 0 and b.width > 0:
+      if a and b are group members of each other: skip
+      xOverlap = (a.width + b.width) / 2 - |a.x - b.x|
+      yOverlap = (a.height + b.height) / 2 - |a.y - b.y|
+      if xOverlap <= 0 or yOverlap <= 0: continue  // no overlap
+      anyOverlap = true
+      // Push along minimum-overlap axis with OVERLAP_PADDING gap
+      if xOverlap < yOverlap:
+        push = xOverlap + OVERLAP_PADDING
+        dir = sign(b.x - a.x)
+        if a.anchored: b.x += dir * push
+        elif b.anchored: a.x -= dir * push
+        else: a.x -= dir * push/2; b.x += dir * push/2
+      else:
+        push = yOverlap + OVERLAP_PADDING
+        dir = sign(b.y - a.y)
+        if a.anchored: b.y += dir * push
+        elif b.anchored: a.y -= dir * push
+        else: a.y -= dir * push/2; b.y += dir * push/2
+    if not anyOverlap: break
+```
+
+Constants: `OVERLAP_PADDING = 10`, `REPULSION_MAX_ITERS = 20`.
+
+Rules:
+- Anchored nodes never move during repulsion.
+- Group members do not repel each other (their relative positions are intentional).
+- Waypoints (width=height=0) are skipped.
+- The pass exits early as soon as no overlaps remain.
+
+## Alignment Semantics: First-is-Anchor Rule
+
+In `align A, B, C, h`:
+- The **first listed node (A) is the reference** and does not move.
+- B and C shift to A's coordinate on the alignment axis.
+- If any node in the list is `anchor`-pinned, the pinned node overrides as reference.
+
+This replaces the previous min-y/max-y/displacement-weighted heuristic, which was fragile and direction-dependent.
+
+## Directional Offset Semantics: Edge-to-Edge
+
+Distance `d` in `A south-of B, d` means the **gap between node borders**, not center-to-center:
+
+```
+A.y = B.y + (B.height + A.height) / 2 + d   // south-of
+A.y = B.y - (B.height + A.height) / 2 - d   // north-of
+A.x = B.x + (B.width  + A.width)  / 2 + d   // east-of
+A.x = B.x - (B.width  + A.width)  / 2 - d   // west-of
+```
+
+For waypoints (width=height=0), the half-size terms vanish — distance is still from the waypoint's position.
+
+Omitting `d` defaults to 0 (nodes touch edge-to-edge, no gap).
+
 ## Performance Targets
 
 | Metric | Target |
 |--------|--------|
 | 10 nodes, 5 constraints | < 1ms |
-| 50 nodes, 20 constraints | < 10ms |
-| 100 nodes, 50 constraints | < 50ms |
+| 50 nodes, 20 constraints | < 50ms |
+| 100 nodes, 50 constraints | < 100ms |
 
-These targets are for the solver alone, not including rendering.
+These targets are for the solver alone (relaxation + repulsion), not including rendering.
