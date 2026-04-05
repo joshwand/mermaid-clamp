@@ -32,6 +32,7 @@ export { solveConstraints } from './solver/index.js';
 export {
   setDiagramText,
   applyConstraintsToNodes,
+  reRouteEdgesInSVG,
   parseTranslate,
   formatTranslate,
 } from './layout/index.js';

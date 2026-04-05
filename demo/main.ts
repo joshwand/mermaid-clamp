@@ -4,24 +4,22 @@ import constraintLayouts, { setDiagramText } from '../src/index.js';
 // ── Diagram source ────────────────────────────────────────────────────────────
 
 const BASE_DIAGRAM = `flowchart TD
-    A[Start] --> B[Validate Input]
-    B --> C[Process]
-    B --> D[Reject]
-    C --> E[Store]
-    C --> F[Notify]
-    E --> G[Complete]
+    A["Start (A)"] --> B["Validate Input (B)"]
+    B --> C["Process (C)"]
+    B --> D["Reject (D)"]
+    C --> E["Store (E)"]
+    C --> F["Notify (F)"]
+    E --> G["Complete (G)"]
     F --> G
-    D --> H[Log Error]`;
+    D --> H["Log Error (H)"]`;
 
 const CONSTRAINT_BLOCK = `
 %% @layout-constraints v1
 %% align B, C, v
-%% D east-of B, 200
+%% D east-of C, 220
 %% align E, F, h
-%% group E, F as outputs
-%% E south-of C, 150
-%% H east-of G, 180
-%% align H, G, h
+%% E south-of C, 120
+%% H south-of D, 120
 %% @end-layout-constraints`;
 
 const DIAGRAM_WITH_CONSTRAINTS = BASE_DIAGRAM + '\n' + CONSTRAINT_BLOCK;

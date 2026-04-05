@@ -8,6 +8,7 @@ import {
   extractPositionsFromSVG,
   applyPositionsToSVG,
   applyConstraintsToNodes,
+  reRouteEdgesInSVG,
   setDiagramText,
 } from './index.js';
 import type { LayoutNode } from '../types.js';
@@ -185,6 +186,252 @@ A --> B
     const nodes: LayoutNode[] = [{ id: 'A', x: 100, y: 100, width: 80, height: 40 }];
     const result = applyConstraintsToNodes(nodes, 'test-diag-2');
     expect(result[0]).toMatchObject({ x: 100, y: 100 });
+  });
+});
+
+// ── Bounding box helpers ──────────────────────────────────────────────────────
+
+/** Returns the four corners of a node's bounding box (center x/y, half-extents). */
+function bbox(node: LayoutNode) {
+  return {
+    left:   node.x - node.width / 2,
+    right:  node.x + node.width / 2,
+    top:    node.y - node.height / 2,
+    bottom: node.y + node.height / 2,
+  };
+}
+
+/** Returns true if two bounding boxes overlap (strictly — touching edges don't count). */
+function overlaps(a: LayoutNode, b: LayoutNode): boolean {
+  const ba = bbox(a);
+  const bb = bbox(b);
+  return ba.left < bb.right && ba.right > bb.left && ba.top < bb.bottom && ba.bottom > bb.top;
+}
+
+// ── Bounding box corner positions ─────────────────────────────────────────────
+
+describe('bounding box corners after constraint solving', () => {
+  it('south-of: solved node bounding box is strictly below the reference', () => {
+    const text = `flowchart TD
+A --> B
+%% @layout-constraints v1
+%% B south-of A, 100
+%% @end-layout-constraints`;
+
+    setDiagramText('bbox-test-1', text);
+    const nodes: LayoutNode[] = [
+      { id: 'A', x: 200, y: 60,  width: 120, height: 40 },
+      { id: 'B', x: 200, y: 140, width: 120, height: 40 },
+    ];
+    const solved = applyConstraintsToNodes(nodes, 'bbox-test-1');
+
+    const A = solved.find((n) => n.id === 'A')!;
+    const B = solved.find((n) => n.id === 'B')!;
+
+    // B.y = A.y + 100 → B center y = 160
+    expect(B.y).toBeCloseTo(A.y + 100, 0);
+
+    // B's top edge must be below A's bottom edge
+    expect(bbox(B).top).toBeGreaterThan(bbox(A).bottom);
+
+    // Corners are at the expected positions
+    expect(bbox(B).left).toBeCloseTo(B.x - B.width / 2, 1);
+    expect(bbox(B).right).toBeCloseTo(B.x + B.width / 2, 1);
+    expect(bbox(B).top).toBeCloseTo(B.y - B.height / 2, 1);
+    expect(bbox(B).bottom).toBeCloseTo(B.y + B.height / 2, 1);
+  });
+
+  it('east-of: solved node right edge is east of reference left edge', () => {
+    const text = `flowchart LR
+A --> B
+%% @layout-constraints v1
+%% B east-of A, 180
+%% @end-layout-constraints`;
+
+    setDiagramText('bbox-test-2', text);
+    const nodes: LayoutNode[] = [
+      { id: 'A', x: 100, y: 100, width: 120, height: 40 },
+      { id: 'B', x: 300, y: 100, width: 120, height: 40 },
+    ];
+    const solved = applyConstraintsToNodes(nodes, 'bbox-test-2');
+
+    const A = solved.find((n) => n.id === 'A')!;
+    const B = solved.find((n) => n.id === 'B')!;
+
+    // B.x = A.x + 180
+    expect(B.x).toBeCloseTo(A.x + 180, 0);
+    expect(bbox(B).left).toBeGreaterThan(bbox(A).right);
+  });
+});
+
+// ── No-overlap assertions ─────────────────────────────────────────────────────
+
+describe('bounding boxes do not overlap after constraint solving', () => {
+  it('two nodes placed south-of and east-of do not overlap', () => {
+    const text = `flowchart TD
+A --> B
+A --> C
+%% @layout-constraints v1
+%% B south-of A, 100
+%% C east-of A, 200
+%% @end-layout-constraints`;
+
+    setDiagramText('nooverlap-1', text);
+    const nodes: LayoutNode[] = [
+      { id: 'A', x: 200, y:  60, width: 120, height: 40 },
+      { id: 'B', x: 200, y: 160, width: 120, height: 40 },
+      { id: 'C', x: 400, y: 160, width: 120, height: 40 },
+    ];
+    const solved = applyConstraintsToNodes(nodes, 'nooverlap-1');
+
+    expect(overlaps(solved[0], solved[1])).toBe(false);
+    expect(overlaps(solved[0], solved[2])).toBe(false);
+    expect(overlaps(solved[1], solved[2])).toBe(false);
+  });
+
+  it('aligned nodes do not overlap when positioned correctly', () => {
+    const text = `flowchart TD
+A --> B
+B --> C
+%% @layout-constraints v1
+%% align A, B, v
+%% C south-of B, 100
+%% @end-layout-constraints`;
+
+    setDiagramText('nooverlap-2', text);
+    const nodes: LayoutNode[] = [
+      { id: 'A', x: 200, y:  60, width: 120, height: 40 },
+      { id: 'B', x: 200, y: 160, width: 120, height: 40 },
+      { id: 'C', x: 200, y: 260, width: 120, height: 40 },
+    ];
+    const solved = applyConstraintsToNodes(nodes, 'nooverlap-2');
+
+    for (let i = 0; i < solved.length; i++) {
+      for (let j = i + 1; j < solved.length; j++) {
+        expect(overlaps(solved[i], solved[j])).toBe(false);
+      }
+    }
+  });
+});
+
+// ── reRouteEdgesInSVG ─────────────────────────────────────────────────────────
+
+function makeEdgeSvg(
+  nodes: Array<{ id: string; transform: string }>,
+  paths: Array<{ id: string; d: string }>,
+): Element {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const { id, transform } of nodes) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('id', id);
+    g.setAttribute('transform', transform);
+    svg.appendChild(g);
+  }
+  const edgePaths = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  edgePaths.setAttribute('class', 'edgePaths');
+  for (const { id, d } of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('id', id);
+    path.setAttribute('d', d);
+    edgePaths.appendChild(path);
+  }
+  svg.appendChild(edgePaths);
+  return svg;
+}
+
+describe('reRouteEdgesInSVG', () => {
+  it('translates path start by source delta and end by target delta', () => {
+    const diagramId = 'test-diagram';
+    // Edge from A to B; path goes from (100,40) to (100,160)
+    const svgEl = makeEdgeSvg(
+      [
+        { id: 'A', transform: 'translate(100, 20)' },
+        { id: 'B', transform: 'translate(100, 180)' },
+      ],
+      [{ id: `${diagramId}-L_A_B_0`, d: 'M 100,40 L 100,160' }],
+    );
+
+    const originalNodes: LayoutNode[] = [
+      { id: 'A', x: 100, y: 20, width: 80, height: 40 },
+      { id: 'B', x: 100, y: 180, width: 80, height: 40 },
+    ];
+    // A moves right 50px; B moves down 30px
+    const solvedNodes: LayoutNode[] = [
+      { id: 'A', x: 150, y: 20, width: 80, height: 40 },
+      { id: 'B', x: 100, y: 210, width: 80, height: 40 },
+    ];
+
+    reRouteEdgesInSVG(svgEl, originalNodes, solvedNodes, [{ id: 'L_A_B_0', start: 'A', end: 'B' }], diagramId);
+
+    const pathEl = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`);
+    const d = pathEl?.getAttribute('d') ?? '';
+
+    // Path starts with "M {new_start_x},{new_start_y}" — first point shifted by A's delta (+50, 0)
+    expect(d).toMatch(/^M\s+150[,\s]/);
+    // Path ends at approx (100, 190) — last point shifted by B's delta (0, +30)
+    expect(d).toMatch(/190\s*$/);
+  });
+
+  it('leaves path unchanged when no nodes moved', () => {
+    const diagramId = 'noop-diagram';
+    const originalD = 'M 100,40 L 100,160';
+    const svgEl = makeEdgeSvg(
+      [],
+      [{ id: `${diagramId}-L_A_B_0`, d: originalD }],
+    );
+
+    const nodes: LayoutNode[] = [
+      { id: 'A', x: 100, y: 20, width: 80, height: 40 },
+      { id: 'B', x: 100, y: 180, width: 80, height: 40 },
+    ];
+
+    reRouteEdgesInSVG(svgEl, nodes, nodes, [{ id: 'L_A_B_0', start: 'A', end: 'B' }], diagramId);
+
+    const d = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`)?.getAttribute('d');
+    expect(d).toBe(originalD);
+  });
+
+  it('edge start point touches source node border after rerouting', () => {
+    const diagramId = 'border-test';
+    // Nodes centered at (200, 40) and (200, 180), height=40, so top/bottom borders at y±20
+    // Edge starts at bottom of A: y=60; ends at top of B: y=160
+    const svgEl = makeEdgeSvg(
+      [
+        { id: 'A', transform: 'translate(200, 40)' },
+        { id: 'B', transform: 'translate(200, 180)' },
+      ],
+      [{ id: `${diagramId}-L_A_B_0`, d: 'M 200,60 L 200,160' }],
+    );
+
+    const originalNodes: LayoutNode[] = [
+      { id: 'A', x: 200, y: 40,  width: 120, height: 40 },
+      { id: 'B', x: 200, y: 180, width: 120, height: 40 },
+    ];
+    // Both nodes shift right by 80px (same delta = no distortion)
+    const solvedNodes: LayoutNode[] = [
+      { id: 'A', x: 280, y: 40,  width: 120, height: 40 },
+      { id: 'B', x: 280, y: 180, width: 120, height: 40 },
+    ];
+
+    reRouteEdgesInSVG(svgEl, originalNodes, solvedNodes, [{ id: 'L_A_B_0', start: 'A', end: 'B' }], diagramId);
+
+    const d = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`)?.getAttribute('d') ?? '';
+    const nums = d.match(/-?[\d.]+/g)?.map(Number) ?? [];
+    // After shifting +80px horizontally: start=(280,60), end=(280,160)
+    expect(nums[0]).toBeCloseTo(280, 0); // start x
+    expect(nums[1]).toBeCloseTo(60, 0);  // start y (unchanged)
+    expect(nums[2]).toBeCloseTo(280, 0); // end x
+    expect(nums[3]).toBeCloseTo(160, 0); // end y (unchanged)
+
+    // Start point (280, 60) should be on the border of solved node A (center 280,40, h=40)
+    const srcNode = solvedNodes.find((n) => n.id === 'A')!;
+    const startX = nums[0];
+    const startY = nums[1];
+    const onBorder =
+      Math.abs(startX - srcNode.x) <= srcNode.width / 2 &&
+      (Math.abs(startY - (srcNode.y - srcNode.height / 2)) < 1 ||
+       Math.abs(startY - (srcNode.y + srcNode.height / 2)) < 1);
+    expect(onBorder).toBe(true);
   });
 });
 

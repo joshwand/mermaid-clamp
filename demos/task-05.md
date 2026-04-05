@@ -57,3 +57,11 @@ node demos/layout-demo.mjs
 ![Before/after layout comparison showing constraints applied to the right diagram](12daad39-2026-04-05.png)
 
 Constraints verified against SVG transforms: align B,C,v (B.x=C.x=172.87 ✓), D east-of B 200 (Δx=200 ✓), align E,F,h (E.y=F.y=393 ✓), E south-of C 150 (Δy=150 ✓), align H,G,h (H.y=G.y=399 ✓). All 5 constraints satisfied.
+
+Visual bug fixes applied. Edge re-routing implemented (reRouteEdgesInSVG): after constraint solving moves nodes, edge paths are updated via linear delta interpolation so arrows stay connected to boxes. Demo constraints simplified to avoid overlapping. Node labels updated to include IDs (A)-(H). New test assertions added: bounding box corners, no-overlap, edge endpoint connectivity. 103 tests passing, build clean.
+
+```bash {image}
+demos/task-05-after-panel.png
+```
+
+![604347bc-2026-04-05](604347bc-2026-04-05.png)

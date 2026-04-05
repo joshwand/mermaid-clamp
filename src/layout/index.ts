@@ -117,6 +117,134 @@ export function applyPositionsToSVG(
   }
 }
 
+// ── Edge re-routing ───────────────────────────────────────────────────────────
+
+/**
+ * Extract all numbers from an SVG path `d` attribute, with their positions in
+ * the string. Returns an array of {value, start, end} objects in source order.
+ */
+function extractPathNumbers(d: string): Array<{ value: number; start: number; end: number }> {
+  const re = /-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
+  const nums: Array<{ value: number; start: number; end: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(d)) !== null) {
+    nums.push({ value: parseFloat(m[0]), start: m.index, end: m.index + m[0].length });
+  }
+  return nums;
+}
+
+/**
+ * Translate an SVG path's coordinate pairs so the first pair moves by
+ * `srcDelta` and the last pair moves by `tgtDelta`. Intermediate pairs are
+ * linearly interpolated. The path string is rebuilt in-place (same format,
+ * same number of decimal places rounded to 2dp).
+ *
+ * Assumes dagre-style paths where all numbers appear as (x, y) pairs in order
+ * (M, L, C, Q commands with absolute coordinates — no H/V/Z/A).
+ */
+function translatePath(
+  d: string,
+  srcDelta: { dx: number; dy: number },
+  tgtDelta: { dx: number; dy: number },
+): string {
+  const nums = extractPathNumbers(d);
+  const nPairs = Math.floor(nums.length / 2);
+  if (nPairs === 0) return d;
+
+  // Compute shifted values
+  const newValues = nums.map((n) => n.value);
+  for (let i = 0; i < nPairs; i++) {
+    const t = nPairs === 1 ? 0.5 : i / (nPairs - 1);
+    newValues[i * 2] += srcDelta.dx * (1 - t) + tgtDelta.dx * t;
+    newValues[i * 2 + 1] += srcDelta.dy * (1 - t) + tgtDelta.dy * t;
+  }
+
+  // Rebuild the string, replacing each number token in-place
+  let result = '';
+  let lastEnd = 0;
+  for (let i = 0; i < nums.length; i++) {
+    result += d.slice(lastEnd, nums[i].start);
+    result += (Math.round(newValues[i] * 100) / 100).toString();
+    lastEnd = nums[i].end;
+  }
+  result += d.slice(lastEnd);
+  return result;
+}
+
+interface EdgeDataEntry {
+  id?: string;
+  start?: string;
+  end?: string;
+  v?: string; // graphlib convention
+  w?: string; // graphlib convention
+  [key: string]: unknown;
+}
+
+/**
+ * After constraint solving moves nodes, update edge `<path d="...">` attributes
+ * so edges remain connected to their (new) node positions.
+ *
+ * Uses delta interpolation: path start is translated by the source node's
+ * positional delta, path end by the target node's delta, intermediate
+ * coordinate pairs are linearly interpolated.
+ */
+export function reRouteEdgesInSVG(
+  svgEl: Element,
+  originalNodes: LayoutNode[],
+  solvedNodes: LayoutNode[],
+  edges: EdgeDataEntry[],
+  diagramId: string,
+): void {
+  // Build delta map: nodeId → {dx, dy}
+  const originalMap = new Map(originalNodes.map((n) => [n.id, n]));
+  const deltaMap = new Map<string, { dx: number; dy: number }>();
+  for (const solved of solvedNodes) {
+    const orig = originalMap.get(solved.id);
+    if (orig) {
+      deltaMap.set(solved.id, { dx: solved.x - orig.x, dy: solved.y - orig.y });
+    }
+  }
+
+  for (const edge of edges) {
+    const srcId = edge.start ?? edge.v;
+    const tgtId = edge.end ?? edge.w;
+    if (!srcId || !tgtId) continue;
+
+    const srcDelta = deltaMap.get(srcId) ?? { dx: 0, dy: 0 };
+    const tgtDelta = deltaMap.get(tgtId) ?? { dx: 0, dy: 0 };
+    if (srcDelta.dx === 0 && srcDelta.dy === 0 && tgtDelta.dx === 0 && tgtDelta.dy === 0) continue;
+
+    // The SVG path element id = "{diagramId}-{edge.id}"
+    // edge.id follows the pattern "L_{srcId}_{tgtId}_{counter}" (mermaid flowchart default)
+    const edgeId = edge.id ?? `L_${srcId}_${tgtId}_0`;
+    const pathEl = svgEl.querySelector(`[id="${cssEscapeId(`${diagramId}-${edgeId}`)}"]`);
+    if (!pathEl) continue;
+
+    const d = pathEl.getAttribute('d');
+    if (!d) continue;
+
+    pathEl.setAttribute('d', translatePath(d, srcDelta, tgtDelta));
+
+    // Also shift the edge label marker if present (data-id matches edge.id)
+    const labelEl = svgEl.querySelector(`[data-id="${cssEscapeId(edgeId)}"]`);
+    if (labelEl) {
+      const transform = labelEl.getAttribute('transform');
+      if (transform) {
+        const pos = parseTranslate(transform);
+        if (pos) {
+          const t = 0.5;
+          const dx = srcDelta.dx * (1 - t) + tgtDelta.dx * t;
+          const dy = srcDelta.dy * (1 - t) + tgtDelta.dy * t;
+          labelEl.setAttribute(
+            'transform',
+            transform.replace(TRANSLATE_RE, formatTranslate(pos.x + dx, pos.y + dy)),
+          );
+        }
+      }
+    }
+  }
+}
+
 // ── Constraint application (testable without DOM) ─────────────────────────────
 
 /**
@@ -192,6 +320,10 @@ const constrainedDagreAlgorithm = {
 
     // Step 5: Write corrected positions back to SVG transforms.
     applyPositionsToSVG(solved, svgEl, layoutData.nodes);
+
+    // Step 6: Re-route edge paths so arrows stay connected to their (moved) nodes.
+    const edges = (layoutData as { edges?: EdgeDataEntry[] }).edges ?? [];
+    reRouteEdgesInSVG(svgEl, nodes, solved, edges, diagramId);
   },
 };
 
