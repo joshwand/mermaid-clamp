@@ -145,68 +145,100 @@ export function applyPositionsToSVG(
 
 const ARROW_MARGIN = 2; // px to pull the path end back from node border for arrowhead
 
-/** SVG path command letters that are followed by coordinate pairs. */
 const PATH_CMD_RE = /([MLCQSTAZmlcqstaz])((?:[^MLCQSTAZmlcqstaz])*)/g;
 
-/**
- * Translate all coordinate pairs in an SVG path `d` string by (dx, dy).
- *
- * - M, L, C, Q, S, T: every number pair (x, y) is translated.
- * - A (arc): only the final x, y endpoint of each arc segment is translated;
- *   rx, ry, x-rotation, large-arc-flag, and sweep-flag are preserved.
- * - Z (closepath): no coordinates, passed through unchanged.
- */
-function translatePathD(d: string, dx: number, dy: number): string {
-  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return d;
+interface PathSegment {
+  cmd: string;
+  nums: number[];
+}
 
+/** Parse an SVG path `d` string into a list of {cmd, nums} segments. */
+function parsePathSegments(d: string): PathSegment[] {
+  const segments: PathSegment[] = [];
+  const re = new RegExp(PATH_CMD_RE.source, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(d)) !== null) {
+    const rawNums = m[2].trim().match(/-?[\d.]+(?:e[+-]?\d+)?/gi);
+    segments.push({ cmd: m[1], nums: rawNums ? rawNums.map(Number) : [] });
+  }
+  return segments;
+}
+
+/** Serialise parsed segments back to a `d` string. */
+function buildPathD(segments: PathSegment[]): string {
   const r = (n: number) => Math.round(n * 100) / 100;
-
-  return d.replace(PATH_CMD_RE, (_, cmd: string, args: string) => {
-    const upper = cmd.toUpperCase();
-    if (upper === 'Z') return cmd;
-
-    const numStr = args.trim().match(/-?[\d.]+(?:e[+-]?\d+)?/gi);
-    if (!numStr) return cmd + args;
-    const values = numStr.map(Number);
-
-    let result: number[];
-    if (upper === 'A') {
-      // Arc params: rx ry x-rotation large-arc-flag sweep-flag x y (7 per segment)
-      result = [];
-      for (let i = 0; i + 6 < values.length; i += 7) {
-        result.push(values[i], values[i + 1], values[i + 2], values[i + 3], values[i + 4]);
-        result.push(r(values[i + 5] + dx), r(values[i + 6] + dy));
-      }
-    } else {
-      result = values.map((v, i) => (i % 2 === 0 ? r(v + dx) : r(v + dy)));
-    }
-
-    return cmd + result.join(',');
-  });
+  return segments
+    .map((s) => (s.nums.length === 0 ? s.cmd : `${s.cmd}${s.nums.map(r).join(',')}`))
+    .join('');
 }
 
 /**
- * Replace the last two numeric values in an SVG path string with (x, y).
- * Used to re-anchor the translated path's endpoint to the exact target border.
+ * Re-anchor an SVG path so its first coordinate pair moves to `newStart` and
+ * its last coordinate pair moves to `newEnd`, with every intermediate coordinate
+ * pair receiving a linearly blended delta between the two.
+ *
+ * This preserves bezier curve shapes: control points near the source move with
+ * the source; control points near the target move with the target; no kinks.
+ *
+ * For A (arc) commands only the endpoint pair (the last 2 of the 7 arc params)
+ * participates in blending; rx, ry, rotation and flags are unchanged.
+ *
+ * Returns null if the path has fewer than two coordinate pairs.
  */
-function setPathEndPoint(d: string, x: number, y: number): string {
-  const r = (n: number) => Math.round(n * 100) / 100;
-  const re = /-?[\d.]+(?:e[+-]?\d+)?/gi;
-  const matches: Array<{ index: number; length: number }> = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(d)) !== null) {
-    matches.push({ index: m.index, length: m[0].length });
+function reanchorPath(
+  d: string,
+  newStart: { x: number; y: number },
+  newEnd: { x: number; y: number },
+): string | null {
+  const segments = parsePathSegments(d);
+
+  // Build an ordered list of references into segments[].nums that represent
+  // coordinate (x,y) pairs — the things we will blend.
+  type PairRef = { si: number; ni: number };
+  const refs: PairRef[] = [];
+
+  for (let si = 0; si < segments.length; si++) {
+    const { cmd, nums } = segments[si];
+    const upper = cmd.toUpperCase();
+    if (upper === 'Z') continue;
+    if (upper === 'A') {
+      // Arc: 7 params per segment — only the final (x,y) at offsets 5,6 are coords.
+      for (let i = 0; i + 6 < nums.length; i += 7) {
+        refs.push({ si, ni: i + 5 });
+      }
+    } else {
+      for (let i = 0; i + 1 < nums.length; i += 2) {
+        refs.push({ si, ni: i });
+      }
+    }
   }
-  if (matches.length < 2) return d;
-  const last = matches[matches.length - 1];
-  const secondLast = matches[matches.length - 2];
-  return (
-    d.substring(0, secondLast.index) +
-    r(x) +
-    d.substring(secondLast.index + secondLast.length, last.index) +
-    r(y) +
-    d.substring(last.index + last.length)
-  );
+
+  if (refs.length < 2) return null;
+
+  // Compute source and target deltas from the current first/last pairs.
+  const newSegs = segments.map((s) => ({ cmd: s.cmd, nums: [...s.nums] }));
+  const first = refs[0];
+  const last  = refs[refs.length - 1];
+
+  const sourceDelta = {
+    x: newStart.x - segments[first.si].nums[first.ni],
+    y: newStart.y - segments[first.si].nums[first.ni + 1],
+  };
+  const targetDelta = {
+    x: newEnd.x - segments[last.si].nums[last.ni],
+    y: newEnd.y - segments[last.si].nums[last.ni + 1],
+  };
+
+  // Apply linearly blended deltas: t=0 → sourceDelta, t=1 → targetDelta.
+  const N = refs.length - 1;
+  for (let i = 0; i < refs.length; i++) {
+    const { si, ni } = refs[i];
+    const t = N > 0 ? i / N : 0;
+    newSegs[si].nums[ni]     = segments[si].nums[ni]     + sourceDelta.x * (1 - t) + targetDelta.x * t;
+    newSegs[si].nums[ni + 1] = segments[si].nums[ni + 1] + sourceDelta.y * (1 - t) + targetDelta.y * t;
+  }
+
+  return buildPathD(newSegs);
 }
 
 /**
@@ -321,23 +353,18 @@ export function reRouteEdgesInSVG(
     const r = (n: number) => Math.round(n * 100) / 100;
 
     const originalD = pathEl.getAttribute('d');
-    const startMatch = originalD
-      ? /^[Mm]\s*([-\d.]+(?:e[+-]?\d+)?)[,\s]+([-\d.]+(?:e[+-]?\d+)?)/.exec(originalD.trim())
-      : null;
+    const reanchored = originalD ? reanchorPath(originalD, exitPt, adjustedEntry) : null;
 
-    if (!startMatch) {
-      // No parseable existing path — fall back to straight line.
+    if (!reanchored) {
+      // Unparseable or degenerate path — fall back to straight line.
       pathEl.setAttribute(
         'd',
         `M${r(exitPt.x)},${r(exitPt.y)}L${r(adjustedEntry.x)},${r(adjustedEntry.y)}`,
       );
     } else {
-      // Translate the existing path by the source delta, then re-anchor the endpoint.
-      // This preserves curves (beziers, arcs) while reconnecting both attachment points.
-      const origStartX = parseFloat(startMatch[1]);
-      const origStartY = parseFloat(startMatch[2]);
-      const translated = translatePathD(originalD!, exitPt.x - origStartX, exitPt.y - origStartY);
-      pathEl.setAttribute('d', setPathEndPoint(translated, adjustedEntry.x, adjustedEntry.y));
+      // Smooth re-anchor: start/end move to new border points, intermediate
+      // control points blend linearly so no bezier kinks are introduced.
+      pathEl.setAttribute('d', reanchored);
     }
 
     // Move edge label to the midpoint of the new path.
