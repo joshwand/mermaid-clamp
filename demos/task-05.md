@@ -54,7 +54,7 @@ node demos/layout-demo.mjs
 ![Before/after layout comparison showing constraints applied to the right diagram](demos/task-05-before-after.png)
 ```
 
-![Before/after layout comparison showing constraints applied to the right diagram](12daad39-2026-04-05.png)
+![Before/after layout comparison showing constraints applied to the right diagram](task-05-before-after.png)
 
 Constraints verified against SVG transforms: align B,C,v (B.x=C.x=172.87 ✓), D east-of B 200 (Δx=200 ✓), align E,F,h (E.y=F.y=393 ✓), E south-of C 150 (Δy=150 ✓), align H,G,h (H.y=G.y=399 ✓). All 5 constraints satisfied.
 
@@ -64,4 +64,4 @@ Visual bug fixes applied. Edge re-routing implemented (reRouteEdgesInSVG): after
 demos/task-05-after-panel.png
 ```
 
-![604347bc-2026-04-05](604347bc-2026-04-05.png)
+![After panel showing constrained layout](task-05-after-panel.png)
