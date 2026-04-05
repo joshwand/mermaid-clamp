@@ -31,6 +31,7 @@ export { serializeConstraints, injectConstraints, stripConstraints } from './ser
 export { solveConstraints } from './solver/index.js';
 export {
   setDiagramText,
+  getAndClearWarnings,
   applyConstraintsToNodes,
   reRouteEdgesInSVG,
   parseTranslate,

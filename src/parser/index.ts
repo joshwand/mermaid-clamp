@@ -80,22 +80,27 @@ function extractBlock(mermaidText: string): string[] | null {
 // ── Individual line parsers ───────────────────────────────────────────────────
 
 function parseDirectional(tokens: string[]): DirectionalConstraint | null {
-  // <nodeA> <direction> <nodeB>, <distance>
+  // <nodeA> <direction> <nodeB>[, <distance>]
   // tokens: ['A', 'south-of', 'B,', '120']  (the comma may be attached)
-  if (tokens.length < 4) return null;
+  // tokens: ['A', 'south-of', 'B']           (distance omitted → 0)
+  if (tokens.length < 3) return null;
 
   const nodeA = tokens[0];
   const direction = tokens[1];
   // nodeB may have a trailing comma: "B,"
   const nodeBRaw = tokens[2].replace(/,$/, '');
-  const distanceStr = tokens[3];
 
   if (!NODE_ID_RE.test(nodeA)) return null;
   if (!DIRECTIONS.has(direction)) return null;
   if (!NODE_ID_RE.test(nodeBRaw)) return null;
-  if (!NUMBER_RE.test(distanceStr)) return null;
 
-  const distance = parseInt(distanceStr, 10);
+  let distance = 0;
+  if (tokens.length >= 4) {
+    const distanceStr = tokens[3];
+    if (!NUMBER_RE.test(distanceStr)) return null;
+    distance = parseInt(distanceStr, 10);
+  }
+
   const id = makeId(`directional:${nodeA}:${direction}:${nodeBRaw}:${distance}`);
 
   return {
@@ -251,7 +256,7 @@ function parseLine(
   // Directional: first token is a node ID (real node or previously declared waypoint)
   if (NODE_ID_RE.test(keyword)) {
     // Could be a directional constraint; the second token would be the direction
-    if (tokens.length >= 4 && DIRECTIONS.has(tokens[1])) {
+    if (tokens.length >= 3 && DIRECTIONS.has(tokens[1])) {
       // Validate nodeA is either a known node or waypoint
       // (we accept any valid NODE_ID here; waypoint IDs are valid node IDs)
       void knownWaypointIds; // checked by caller if needed
@@ -275,10 +280,11 @@ function parseLine(
 export function parseConstraints(mermaidText: string): ConstraintSet {
   const lines = extractBlock(mermaidText);
   if (lines === null) {
-    return { version: 1, constraints: [] };
+    return { version: 1, constraints: [], warnings: [] };
   }
 
   const constraints: Constraint[] = [];
+  const warnings: string[] = [];
   const knownWaypointIds = new Set<string>();
 
   for (const line of lines) {
@@ -287,7 +293,7 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
     const constraint = parseLine(line, knownWaypointIds);
 
     if (constraint === null) {
-      console.warn(`[mermaid-layout-constraints] Skipping malformed constraint line: "${line}"`);
+      warnings.push(`Skipping malformed constraint line: "${line}"`);
       continue;
     }
 
@@ -298,5 +304,5 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
     constraints.push(constraint);
   }
 
-  return { version: 1, constraints };
+  return { version: 1, constraints, warnings };
 }

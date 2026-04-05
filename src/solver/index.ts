@@ -4,6 +4,7 @@ import type { Constraint, ConstraintSet, LayoutNode } from '../types.js';
 
 const MAX_ITERATIONS = 10;
 const CONVERGENCE_THRESHOLD = 0.5;
+const OVERLAP_PADDING = 10;
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
@@ -111,15 +112,21 @@ function applyAlignments(
     const axis = c.axis === 'h' ? 'y' : 'x';
     const hasAnchored = nodes.some((n) => n.anchored);
 
-    // For h-alignment (same y) with no anchored nodes: use the maximum y value
-    // so that directionally-placed nodes below the group's natural position pull
-    // all members down, rather than averaging them upward.
+    // For h-alignment (same y) with no anchored nodes:
+    //   - If any node has been displaced in Y by a prior constraint, use max-y
+    //     so that directionally-placed nodes below the group's natural position
+    //     pull all members down.
+    //   - If no node has been displaced in Y, use min-y so that nodes lower in
+    //     the dagre layout are pulled up to the topmost member's position.
     //
     // For v-alignment (same x) or any alignment containing an anchored node:
     // use a weighted average; anchored nodes dominate with weight 1e6.
     let target: number;
     if (axis === 'y' && !hasAnchored) {
-      target = Math.max(...nodes.map((n) => n.y));
+      const anyYDisplaced = nodes.some((n) => Math.abs(n.y - (base.get(n.id)?.y ?? n.y)) >= CONVERGENCE_THRESHOLD);
+      target = anyYDisplaced
+        ? Math.max(...nodes.map((n) => n.y))
+        : Math.min(...nodes.map((n) => n.y));
     } else {
       let targetSum = 0;
       let weightSum = 0;
@@ -154,15 +161,16 @@ function applyDirectionals(
     const nodeB = nodeMap.get(c.nodeB);
     if (!nodeA || !nodeB || nodeA.anchored) continue;
 
-    // Center-to-center semantics per the spec.
+    // Edge-to-edge semantics: distance is gap between node edges.
+    // Waypoints have width=height=0, so the half-size terms vanish for them.
     let targetX = nodeA.x;
     let targetY = nodeA.y;
 
     switch (c.direction) {
-      case 'south-of': targetY = nodeB.y + c.distance; break;
-      case 'north-of': targetY = nodeB.y - c.distance; break;
-      case 'east-of':  targetX = nodeB.x + c.distance; break;
-      case 'west-of':  targetX = nodeB.x - c.distance; break;
+      case 'south-of': targetY = nodeB.y + (nodeB.height + nodeA.height) / 2 + c.distance; break;
+      case 'north-of': targetY = nodeB.y - (nodeB.height + nodeA.height) / 2 - c.distance; break;
+      case 'east-of':  targetX = nodeB.x + (nodeB.width  + nodeA.width)  / 2 + c.distance; break;
+      case 'west-of':  targetX = nodeB.x - (nodeB.width  + nodeA.width)  / 2 - c.distance; break;
     }
 
     const dx = targetX - nodeA.x;
@@ -170,6 +178,46 @@ function applyDirectionals(
 
     if (Math.abs(dx) >= CONVERGENCE_THRESHOLD) moveNode(nodeA.id, dx, 0, nodeMap, peers);
     if (Math.abs(dy) >= CONVERGENCE_THRESHOLD) moveNode(nodeA.id, 0, dy, nodeMap, peers);
+  }
+}
+
+// ── Post-solve passes ─────────────────────────────────────────────────────────
+
+/**
+ * Push nodes that are still at their dagre (base) y-position downward if a
+ * constrained node above them has moved into their space.
+ *
+ * Algorithm: sort nodes by their original dagre y; for each node whose solved
+ * y hasn't moved from its base (i.e., it is unconstrained in y), check every
+ * preceding node. If they x-overlap and the unconstrained node's y is too
+ * close to the preceding node's solved bottom edge, push it down.
+ */
+function resolveVerticalOverlaps(
+  nodes: SolverNode[],
+  base: Map<string, LayoutNode>,
+): void {
+  const sorted = [...nodes].sort((a, b) => {
+    const ay = base.get(a.id)?.y ?? a.y;
+    const by_ = base.get(b.id)?.y ?? b.y;
+    return ay - by_;
+  });
+
+  for (let i = 1; i < sorted.length; i++) {
+    const node = sorted[i];
+    if (node.anchored) continue;
+    const baseY = base.get(node.id)?.y ?? node.y;
+    // Only consider nodes that have not been moved in y by a constraint.
+    if (Math.abs(node.y - baseY) >= CONVERGENCE_THRESHOLD) continue;
+
+    for (let j = 0; j < i; j++) {
+      const prev = sorted[j];
+      const xGap = Math.abs(node.x - prev.x);
+      const xMinSep = (node.width + prev.width) / 2;
+      if (xGap >= xMinSep) continue; // no horizontal overlap — no conflict
+
+      const minY = prev.y + (prev.height + node.height) / 2 + OVERLAP_PADDING;
+      if (node.y < minY) node.y = minY;
+    }
   }
 }
 
@@ -217,6 +265,11 @@ export function solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet
 
     if (maxDelta < CONVERGENCE_THRESHOLD) break;
   }
+
+  // Step 3: Push unconstrained nodes that ended up above constrained nodes
+  // that moved downward. Handles cases where a directional constraint moves a
+  // node below a sibling that dagre placed below it originally.
+  resolveVerticalOverlaps(working, base);
 
   // Return plain LayoutNodes (strip the internal `anchored` flag).
   return working.map(({ anchored: _anchored, ...n }) => n);

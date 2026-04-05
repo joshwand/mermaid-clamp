@@ -20,6 +20,17 @@ import type { LayoutAlgorithm, LayoutLoaderDefinition, LayoutNode } from '../typ
 /** diagramId → raw mermaid text (for constraint extraction). */
 const diagramTextMap = new Map<string, string>();
 
+/** Accumulated warnings from the most recent render(s). */
+const pendingWarnings: string[] = [];
+
+/**
+ * Return and clear all warnings accumulated since the last call.
+ * Call this after `mermaid.render()` to surface parser warnings.
+ */
+export function getAndClearWarnings(): string[] {
+  return pendingWarnings.splice(0);
+}
+
 /**
  * Register the mermaid source text for a diagram before rendering.
  * Call this before `mermaid.render(diagramId, text)`.
@@ -309,6 +320,9 @@ const constrainedDagreAlgorithm = {
     if (!text) return;
     const cs = parseConstraints(text);
     if (cs.constraints.length === 0) return;
+
+    // Collect parser warnings.
+    for (const w of cs.warnings ?? []) pendingWarnings.push(w);
 
     // Step 3: Read positions from SVG transforms (dagre wrote them there).
     const svgEl = (svg as { node(): Element }).node();

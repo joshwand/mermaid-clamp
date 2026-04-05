@@ -174,8 +174,8 @@ A --> B
       { id: 'B', x: 100, y: 50,  width: 80, height: 40 },
     ];
     const result = applyConstraintsToNodes(nodes, 'test-diag-1');
-    // A should be south-of B by 150: A.y = B.y + 150 = 50 + 150 = 200
-    expect(result.find(n => n.id === 'A')?.y).toBeCloseTo(200, 0);
+    // A south-of B, 150 (edge-to-edge): A.y = B.y + (B.h + A.h)/2 + 150 = 50 + 40 + 150 = 240
+    expect(result.find(n => n.id === 'A')?.y).toBeCloseTo(240, 0);
     // B should not move
     expect(result.find(n => n.id === 'B')?.y).toBeCloseTo(50, 0);
   });
@@ -228,10 +228,10 @@ A --> B
     const A = solved.find((n) => n.id === 'A')!;
     const B = solved.find((n) => n.id === 'B')!;
 
-    // B.y = A.y + 100 → B center y = 160
-    expect(B.y).toBeCloseTo(A.y + 100, 0);
+    // B south-of A, 100 (edge-to-edge): B.y = A.y + (A.h + B.h)/2 + 100 = 60 + 40 + 100 = 200
+    expect(B.y).toBeCloseTo(A.y + (A.height + B.height) / 2 + 100, 0);
 
-    // B's top edge must be below A's bottom edge
+    // B's top edge must be below A's bottom edge (gap = 100)
     expect(bbox(B).top).toBeGreaterThan(bbox(A).bottom);
 
     // Corners are at the expected positions
@@ -258,8 +258,8 @@ A --> B
     const A = solved.find((n) => n.id === 'A')!;
     const B = solved.find((n) => n.id === 'B')!;
 
-    // B.x = A.x + 180
-    expect(B.x).toBeCloseTo(A.x + 180, 0);
+    // B east-of A, 180 (edge-to-edge): B.x = A.x + (A.w + B.w)/2 + 180 = 100 + 120 + 180 = 400
+    expect(B.x).toBeCloseTo(A.x + (A.width + B.width) / 2 + 180, 0);
     expect(bbox(B).left).toBeGreaterThan(bbox(A).right);
   });
 });

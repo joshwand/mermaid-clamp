@@ -45,36 +45,40 @@ describe('solveConstraints — no constraints', () => {
 // ── Directional constraints ───────────────────────────────────────────────────
 
 describe('solveConstraints — directional', () => {
-  it('south-of: A.y = B.y + distance', () => {
+  it('south-of: A.y = B.y + (B.h + A.h)/2 + distance (edge-to-edge)', () => {
+    // B: h=40, A: h=40 → half-sep = 40. A.y = 50 + 40 + 120 = 210
     const nodes = [node('A', 100, 100), node('B', 100, 50)];
     const result = solveConstraints(nodes, cs(
       { type: 'directional', id: 'x', nodeA: 'A', direction: 'south-of', nodeB: 'B', distance: 120 },
     ));
-    expect(byId(result, 'A').y).toBeCloseTo(50 + 120, CLOSE);
+    expect(byId(result, 'A').y).toBeCloseTo(50 + 40 + 120, CLOSE);
   });
 
-  it('north-of: A.y = B.y - distance', () => {
+  it('north-of: A.y = B.y - (B.h + A.h)/2 - distance (edge-to-edge)', () => {
+    // B: h=40, A: h=40 → half-sep = 40. A.y = 200 - 40 - 80 = 80
     const nodes = [node('A', 100, 300), node('B', 100, 200)];
     const result = solveConstraints(nodes, cs(
       { type: 'directional', id: 'x', nodeA: 'A', direction: 'north-of', nodeB: 'B', distance: 80 },
     ));
-    expect(byId(result, 'A').y).toBeCloseTo(200 - 80, CLOSE);
+    expect(byId(result, 'A').y).toBeCloseTo(200 - 40 - 80, CLOSE);
   });
 
-  it('east-of: A.x = B.x + distance', () => {
+  it('east-of: A.x = B.x + (B.w + A.w)/2 + distance (edge-to-edge)', () => {
+    // B: w=80, A: w=80 → half-sep = 80. A.x = 50 + 80 + 100 = 230
     const nodes = [node('A', 100, 100), node('B', 50, 100)];
     const result = solveConstraints(nodes, cs(
       { type: 'directional', id: 'x', nodeA: 'A', direction: 'east-of', nodeB: 'B', distance: 100 },
     ));
-    expect(byId(result, 'A').x).toBeCloseTo(50 + 100, CLOSE);
+    expect(byId(result, 'A').x).toBeCloseTo(50 + 80 + 100, CLOSE);
   });
 
-  it('west-of: A.x = B.x - distance', () => {
+  it('west-of: A.x = B.x - (B.w + A.w)/2 - distance (edge-to-edge)', () => {
+    // B: w=80, A: w=80 → half-sep = 80. A.x = 200 - 80 - 60 = 60
     const nodes = [node('A', 300, 100), node('B', 200, 100)];
     const result = solveConstraints(nodes, cs(
       { type: 'directional', id: 'x', nodeA: 'A', direction: 'west-of', nodeB: 'B', distance: 60 },
     ));
-    expect(byId(result, 'A').x).toBeCloseTo(200 - 60, CLOSE);
+    expect(byId(result, 'A').x).toBeCloseTo(200 - 80 - 60, CLOSE);
   });
 
   it('reference node B does not move', () => {
@@ -169,13 +173,11 @@ describe('solveConstraints — group', () => {
       { type: 'group', id: 'g', nodes: ['A', 'B', 'C'], name: 'trio' },
       { type: 'directional', id: 'd', nodeA: 'A', direction: 'south-of', nodeB: 'D', distance: 80 },
     ));
-    // A should be at D.y + 80 = 80
-    expect(byId(result, 'A').y).toBeCloseTo(80, CLOSE);
-    // B and C should have moved by the same delta (+80 - 100 = -20... wait)
-    // Original A.y = 100, target = 0 + 80 = 80. Delta = -20.
-    // B.y was 100, should become 80. C.y was 100, should become 80.
-    expect(byId(result, 'B').y).toBeCloseTo(80, CLOSE);
-    expect(byId(result, 'C').y).toBeCloseTo(80, CLOSE);
+    // A should be at D.y + (D.h + A.h)/2 + 80 = 0 + 40 + 80 = 120 (edge-to-edge)
+    expect(byId(result, 'A').y).toBeCloseTo(120, CLOSE);
+    // B and C move by the same delta as A (120 - 100 = +20)
+    expect(byId(result, 'B').y).toBeCloseTo(120, CLOSE);
+    expect(byId(result, 'C').y).toBeCloseTo(120, CLOSE);
     // X positions of B and C should be unchanged
     expect(byId(result, 'B').x).toBeCloseTo(200, CLOSE);
     expect(byId(result, 'C').x).toBeCloseTo(150, CLOSE);
@@ -192,7 +194,8 @@ describe('solveConstraints — group', () => {
       { type: 'group', id: 'g', nodes: ['A', 'B', 'C'], name: 'grp' },
       { type: 'align', id: 'aln', nodes: ['A', 'D'], axis: 'h' },
     ));
-    // A aligns with D (D.y = 200); A, B, C all move to y ≈ 200
+    // D has no Y displacement; A,B,C have no Y displacement; min-y = 120 (A's level)
+    // D moves up to A's Y (120). Group movement: A stays (already at min), B and C unchanged.
     expect(byId(result, 'A').y).toBeCloseTo(byId(result, 'D').y, CLOSE);
     expect(byId(result, 'B').y).toBeCloseTo(byId(result, 'D').y, CLOSE);
     expect(byId(result, 'C').y).toBeCloseTo(byId(result, 'D').y, CLOSE);
@@ -202,12 +205,13 @@ describe('solveConstraints — group', () => {
 // ── Waypoints ────────────────────────────────────────────────────────────────
 
 describe('solveConstraints — waypoints', () => {
-  it('waypoint west-of C: wp1.x = C.x - distance (center-to-center)', () => {
+  it('waypoint west-of C: wp1.x = C.x - C.w/2 - distance (edge-to-edge; waypoint w=0)', () => {
+    // C: w=80 → half-sep = 40+0 = 40. wp1.x = 200 - 40 - 20 = 140
     const nodes = [waypoint('wp1', 100, 100), node('C', 200, 100)];
     const result = solveConstraints(nodes, cs(
       { type: 'directional', id: 'x', nodeA: 'wp1', direction: 'west-of', nodeB: 'C', distance: 20 },
     ));
-    expect(byId(result, 'wp1').x).toBeCloseTo(200 - 20, CLOSE);
+    expect(byId(result, 'wp1').x).toBeCloseTo(200 - 40 - 20, CLOSE);
   });
 
   it('waypoint can be aligned with a real node', () => {

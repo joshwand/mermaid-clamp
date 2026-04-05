@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { parseConstraints } from './index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -19,17 +19,17 @@ function wrap(constraints: string): string {
 describe('parseConstraints — empty / missing', () => {
   it('returns empty ConstraintSet for empty string', () => {
     const result = parseConstraints('');
-    expect(result).toEqual({ version: 1, constraints: [] });
+    expect(result).toEqual({ version: 1, constraints: [], warnings: [] });
   });
 
   it('returns empty ConstraintSet when no block is present', () => {
     const result = parseConstraints('flowchart TD\nA --> B\nB --> C');
-    expect(result).toEqual({ version: 1, constraints: [] });
+    expect(result).toEqual({ version: 1, constraints: [], warnings: [] });
   });
 
   it('returns empty ConstraintSet for a block with no constraint lines', () => {
     const result = parseConstraints(wrap(''));
-    expect(result).toEqual({ version: 1, constraints: [] });
+    expect(result).toEqual({ version: 1, constraints: [], warnings: [] });
   });
 });
 
@@ -251,43 +251,40 @@ describe('parseConstraints — multiple constraints', () => {
 // ── Malformed lines ───────────────────────────────────────────────────────────
 
 describe('parseConstraints — malformed lines', () => {
-  it('skips completely unrecognizable lines with a warning', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('skips completely unrecognizable lines and adds to warnings', () => {
     const result = parseConstraints(wrap('this is not a constraint'));
     expect(result.constraints).toHaveLength(0);
-    expect(warnSpy).toHaveBeenCalledOnce();
-    warnSpy.mockRestore();
+    expect(result.warnings!).toHaveLength(1);
+    expect(result.warnings![0]).toContain('this is not a constraint');
   });
 
-  it('skips directional with missing distance', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('parses directional with no distance as distance=0', () => {
     const result = parseConstraints(wrap('A south-of B'));
-    expect(result.constraints).toHaveLength(0);
-    warnSpy.mockRestore();
+    expect(result.constraints).toHaveLength(1);
+    expect(result.warnings!).toHaveLength(0);
+    const c = result.constraints[0];
+    if (c.type === 'directional') expect(c.distance).toBe(0);
   });
 
-  it('skips align with invalid axis', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('skips align with invalid axis and adds to warnings', () => {
     const result = parseConstraints(wrap('align A, B, z'));
     expect(result.constraints).toHaveLength(0);
-    warnSpy.mockRestore();
+    expect(result.warnings!).toHaveLength(1);
   });
 
-  it('skips anchor with wrong number of args', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('skips anchor with wrong number of args and adds to warnings', () => {
     const result = parseConstraints(wrap('anchor A, 200'));
     expect(result.constraints).toHaveLength(0);
-    warnSpy.mockRestore();
+    expect(result.warnings!).toHaveLength(1);
   });
 
   it('parses good lines around a malformed line', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const text = wrap('A south-of B, 120\nnot valid\nalign C, D, h');
     const result = parseConstraints(text);
     expect(result.constraints).toHaveLength(2);
+    expect(result.warnings!).toHaveLength(1);
     expect(result.constraints[0].type).toBe('directional');
     expect(result.constraints[1].type).toBe('align');
-    warnSpy.mockRestore();
   });
 
   it('only parses the first block when multiple exist', () => {

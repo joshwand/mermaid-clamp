@@ -1,5 +1,5 @@
 import mermaid from 'mermaid';
-import constraintLayouts, { setDiagramText } from '../src/index.js';
+import constraintLayouts, { setDiagramText, getAndClearWarnings } from '../src/index.js';
 
 // ── Default content ───────────────────────────────────────────────────────────
 
@@ -15,11 +15,11 @@ const DEFAULT_DIAGRAM = `flowchart TD
 
 const DEFAULT_CONSTRAINTS = `%% @layout-constraints v1
 %% align B, C, v
-%% D east-of C, 220
+%% D east-of C, 50
 %% align D, H, v
 %% align E, F, h
-%% E south-of C, 120
-%% H south-of D, 120
+%% E south-of C, 20
+%% H south-of D, 20
 %% align G, H, h
 %% @end-layout-constraints`;
 
@@ -79,8 +79,14 @@ async function render(): Promise<void> {
       renderDiagram('diagram-before', baseDiagram,     'dagre',            beforeEl),
       renderDiagram('diagram-after',  withConstraints, 'constrained-dagre', afterEl),
     ]);
-    statusEl.className   = '';
-    statusEl.textContent = 'Rendered.';
+    const warnings = getAndClearWarnings();
+    if (warnings.length > 0) {
+      statusEl.className   = 'warning';
+      statusEl.textContent = warnings.map((w) => `Warning: ${w}`).join('\n');
+    } else {
+      statusEl.className   = '';
+      statusEl.textContent = 'Rendered.';
+    }
   } catch (err) {
     statusEl.className   = 'error';
     statusEl.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;

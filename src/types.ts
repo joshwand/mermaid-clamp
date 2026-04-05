@@ -30,7 +30,7 @@ export interface DirectionalConstraint {
   direction: Direction;
   /** The reference node (does not move). */
   nodeB: string;
-  /** Center-to-center distance in pixels. */
+  /** Edge-to-edge distance in pixels (0 = touching). */
   distance: number;
 }
 
@@ -101,6 +101,8 @@ export type Constraint =
 export interface ConstraintSet {
   version: 1;
   constraints: Constraint[];
+  /** Human-readable warning messages for malformed or skipped lines. */
+  warnings?: string[];
 }
 
 // ── Layout types ─────────────────────────────────────────────────────────────
