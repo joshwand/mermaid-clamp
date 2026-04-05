@@ -37,6 +37,32 @@ pnpm test
 
 ## Scenario 1 — Default constraints: before/after side by side
 
+**Diagram source:**
+```
+flowchart TD
+    A[Start] --> B[Validate]
+    B --> C[Process]
+    B --> D[Reject]
+    C --> E[Store]
+    C --> F[Notify]
+    E --> G[Complete]
+    F --> G
+    D --> H[Log Error]
+```
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% align B, C, v
+%% D east-of C, 50
+%% align D, H, v
+%% align E, F, h
+%% E south-of C, 20
+%% H south-of D, 20
+%% align G, H, h
+%% @end-layout-constraints
+```
+
 Constraints applied:
 ```
 align B, C, v       → C moves to B's column
@@ -54,6 +80,8 @@ align G, H, h       → H moves to G's row (G is reference/anchor)
 
 ## Scenario 2 — Default constraints: constrained layout (after panel)
 
+Same diagram and constraints as Scenario 1.
+
 No overlaps. D is right of C. E/F row-aligned. G/H row-aligned.
 
 ![Constrained layout — after panel](task-05-02-default-after.png)
@@ -62,6 +90,8 @@ No overlaps. D is right of C. E/F row-aligned. G/H row-aligned.
 
 ## Scenario 3 — Dagre baseline (before panel)
 
+Same diagram source as Scenario 1. No constraints applied.
+
 Stock dagre layout — no constraints applied.
 
 ![Dagre baseline — before panel](task-05-03-default-before.png)
@@ -69,6 +99,15 @@ Stock dagre layout — no constraints applied.
 ---
 
 ## Scenario 4 — `align B, D, h`: first-is-anchor rule
+
+**Diagram source:** same as Scenario 1.
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% align B, D, h
+%% @end-layout-constraints
+```
 
 B is listed first → B is the reference. D moves **up** to B's row.
 Overlap repulsion then pushes B and D apart horizontally (they would otherwise collide).
@@ -79,6 +118,15 @@ Overlap repulsion then pushes B and D apart horizontally (they would otherwise c
 
 ## Scenario 5 — `align G, H, h`: second node follows first
 
+**Diagram source:** same as Scenario 1.
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% align G, H, h
+%% @end-layout-constraints
+```
+
 G is listed first → G is the reference. H moves **down** to G's row.
 
 ![align G, H, h — H moves down to G's row](task-05-05-align-h-second-follows.png)
@@ -86,6 +134,15 @@ G is listed first → G is the reference. H moves **down** to G's row.
 ---
 
 ## Scenario 6 — `align B, C, v`: vertical alignment (same column)
+
+**Diagram source:** same as Scenario 1.
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% align B, C, v
+%% @end-layout-constraints
+```
 
 B is first → reference. C shifts left to B's x-center.
 
@@ -95,6 +152,15 @@ B is first → reference. C shifts left to B's x-center.
 
 ## Scenario 7 — `D east-of C, 50`: directional, edge-to-edge
 
+**Diagram source:** same as Scenario 1.
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% D east-of C, 50
+%% @end-layout-constraints
+```
+
 50px gap between C's right edge and D's left edge (not center-to-center).
 
 ![D east-of C, 50 — 50px edge-to-edge gap](task-05-07-east-of.png)
@@ -103,6 +169,15 @@ B is first → reference. C shifts left to B's x-center.
 
 ## Scenario 8 — `E south-of C, 20`: directional, edge-to-edge
 
+**Diagram source:** same as Scenario 1.
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% E south-of C, 20
+%% @end-layout-constraints
+```
+
 20px gap between C's bottom edge and E's top edge.
 
 ![E south-of C, 20 — 20px edge-to-edge gap](task-05-08-south-of.png)
@@ -110,6 +185,16 @@ B is first → reference. C shifts left to B's x-center.
 ---
 
 ## Scenario 9 — Overlap repulsion with dual h-alignment
+
+**Diagram source:** same as Scenario 1.
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% align B, D, h
+%% align G, H, h
+%% @end-layout-constraints
+```
 
 `align B, D, h` pulls D up to B's row; `align G, H, h` pulls H down to G's row.
 B and D are now at the same Y — repulsion pushes them apart horizontally. No overlap.
@@ -120,6 +205,16 @@ B and D are now at the same Y — repulsion pushes them apart horizontally. No o
 
 ## Scenario 10 — Warning surfaced in status bar
 
+**Diagram source:** same as Scenario 1.
+
+**Constraints:**
+```
+%% @layout-constraints v1
+%% align B, C, v
+%% this is not a valid constraint
+%% @end-layout-constraints
+```
+
 Malformed constraint line is skipped; warning appears in the yellow status bar.
 
 ![Malformed constraint — warning shown in status bar](task-05-10-warnings.png)
@@ -127,6 +222,10 @@ Malformed constraint line is skipped; warning appears in the yellow status bar.
 ---
 
 ## Scenario 11 — Full live editor
+
+**Diagram source:** same as Scenario 1.
+
+**Constraints:** same as Scenario 1 (default constraints).
 
 Both textareas visible; diagram and constraints are editable; re-renders on input with 750ms debounce.
 

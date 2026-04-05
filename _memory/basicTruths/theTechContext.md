@@ -114,8 +114,9 @@ Every task-NN.md must:
    - Edge cases and variant inputs work
    - Nothing previously working is broken (regression)
    - The spec is followed exactly (e.g., correct semantics, no overlaps)
-4. **Be verbose enough to prove it** — if in doubt, add another scenario.
-5. **Include a key implementation facts table** — summarise the critical behaviours.
+4. **Include diagram and constraint source for every scenario** — each scenario section must show the exact mermaid diagram source and constraint block used to produce the screenshot, in fenced code blocks.
+5. **Be verbose enough to prove it** — if in doubt, add another scenario.
+6. **Include a key implementation facts table** — summarise the critical behaviours.
 
 Your job is to **PROVE** that the work was implemented completely, correctly, follows the spec, and did not break anything else.
 
