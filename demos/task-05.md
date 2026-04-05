@@ -1,67 +1,68 @@
-# Task 5: Layout Engine Integration
+# Task 5: Layout Engine Integration — Live Editor Demo
 
-*2026-04-04T05:55:49Z by Showboat 0.6.1*
-<!-- showboat-id: e6c8d433-4a3e-41f8-b097-dc0f19be7d48 -->
+## What this demonstrates
 
-Task 5: Layout Engine Integration. Registers constrained-dagre with mermaid.registerLayoutLoaders(). Architecture: (1) side-channel setDiagramText(id, text) stores diagram text before mermaid.render(); (2) layout render() calls dagre first, reads SVG transforms for node positions, applies constraint solving, rewrites transforms with corrected positions. Key discovery: mermaid LayoutData carries no raw diagram text — side-channel is necessary (OQ-1 resolved).
+`constrained-dagre` is a custom mermaid layout algorithm that:
+
+1. Runs dagre first to get base node positions from SVG transforms
+2. Reads actual node dimensions from the SVG `<rect>` elements
+3. Applies constraint solving (alignment, directional, anchor, group)
+4. Writes corrected positions back to SVG transforms
+5. Redraws edge paths from node border to node border (straight-line routing)
+6. Runs an overlap repulsion pass to push any colliding nodes apart
+
+The live editor at `demo/index.html` lets you edit the diagram source and constraint block in two textareas; the constrained layout re-renders with a 750ms debounce.
+
+## Test results
 
 ```bash
-pnpm test -- --reporter=verbose 2>&1 | tail -10
+pnpm test -- --reporter=verbose 2>&1 | tail -14
 ```
 
 ```output
- ✓ src/solver/index.test.ts (20 tests) 9ms
- ✓ src/parser/index.test.ts (30 tests) 15ms
- ✓ src/index.test.ts (7 tests) 6ms
- ✓ src/layout/index.test.ts (18 tests) 26ms
+ ✓ src/solver/index.test.ts (20 tests) 35ms
+ ✓ src/parser/index.test.ts (30 tests) 33ms
+ ✓ src/index.test.ts (7 tests) 8ms
+ ✓ src/serializer/index.test.ts (21 tests) 29ms
+ ✓ src/layout/index.test.ts (25 tests) 41ms
 
  Test Files  5 passed (5)
-      Tests  96 passed (96)
-   Start at  05:55:50
-   Duration  1.43s (transform 307ms, setup 0ms, collect 428ms, tests 67ms, environment 637ms, prepare 319ms)
-
+      Tests  103 passed (103)
 ```
 
-```bash
-node demos/layout-demo.mjs
+## Default demo constraints
+
+```
+%% @layout-constraints v1
+%% align B, C, v        → C moves to B's column (same X)
+%% D east-of C, 50      → D placed 50px gap east of C (edge-to-edge)
+%% align D, H, v        → H moves to D's column
+%% align E, F, h        → F moves to E's row (E is reference)
+%% E south-of C, 20     → E placed 20px gap below C (edge-to-edge)
+%% H south-of D, 20     → H placed 20px gap below D
+%% align G, H, h        → H moves to G's row (G is reference)
+%% @end-layout-constraints
 ```
 
-```output
-=== Registered diagram text for: demo-diagram
+Alignment rule: the **first listed node is the reference** and does not move; subsequent nodes shift to match it.
 
-=== Dagre positions (before constraints) ===
-  A: x=150, y=100
-  B: x=250, y=200
-  C: x=100, y=300
+## Before (dagre) vs After (constrained-dagre)
 
-=== Solved positions (after constraints) ===
-  A: x=150, y=400
-  B: x=175, y=200
-  C: x=175, y=300
+![Before and after side by side with live editor](task-05-before-after.png)
 
-=== Verification ===
-  A.y = B.y + 200: 400 ≈ 400 → PASS
-  align B, C, v (same X): B.x=175, C.x=175 → PASS
+## Constrained layout — after panel
 
-=== SVG transform helpers ===
-  parseTranslate('translate(123.5, 456.75)') → {"x":123.5,"y":456.75}
-  formatTranslate(200, 300) → 'translate(200, 300)'
-```
+![Constrained layout showing D right-of C, E/F aligned, G/H aligned](task-05-after-panel.png)
 
-96/96 tests passing. Constraint application verified: A.y = B.y + 200 PASS, align B,C,v PASS. mermaid dagre chunk stays external (10kB bundle, was 757kB when bundled). Ready for human review.
+## Full live editor (with source textareas)
 
-```bash {image}
-![Before/after layout comparison showing constraints applied to the right diagram](demos/task-05-before-after.png)
-```
+![Live editor showing diagram source and constraint textareas](task-05-editor.png)
 
-![Before/after layout comparison showing constraints applied to the right diagram](task-05-before-after.png)
+## Key implementation notes
 
-Constraints verified against SVG transforms: align B,C,v (B.x=C.x=172.87 ✓), D east-of B 200 (Δx=200 ✓), align E,F,h (E.y=F.y=393 ✓), E south-of C 150 (Δy=150 ✓), align H,G,h (H.y=G.y=399 ✓). All 5 constraints satisfied.
-
-Visual bug fixes applied. Edge re-routing implemented (reRouteEdgesInSVG): after constraint solving moves nodes, edge paths are updated via linear delta interpolation so arrows stay connected to boxes. Demo constraints simplified to avoid overlapping. Node labels updated to include IDs (A)-(H). New test assertions added: bounding box corners, no-overlap, edge endpoint connectivity. 103 tests passing, build clean.
-
-```bash {image}
-demos/task-05-after-panel.png
-```
-
-![After panel showing constrained layout](task-05-after-panel.png)
+- **Side-channel**: mermaid's `LayoutData` carries no diagram text, so callers call `setDiagramText(id, text)` before `mermaid.render()`.
+- **Node dimensions**: `layoutData.nodes` always has `width=height=0`; actual sizes are read from the SVG `<rect>` element.
+- **Distances are edge-to-edge**: `D east-of C, 50` means a 50px gap between C's right edge and D's left edge (not center-to-center).
+- **Overlap repulsion**: after solving, any overlapping pair is pushed apart along the minimum-overlap axis.
+- **Arrow routing**: edge paths are redrawn as straight lines from the source node border to the target node border, using `rectBorderPoint` to find the correct exit/entry points.
+- **Warnings**: parser warnings are collected in `ConstraintSet.warnings`; call `getAndClearWarnings()` after render to surface them.
