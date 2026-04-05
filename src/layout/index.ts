@@ -145,6 +145,70 @@ export function applyPositionsToSVG(
 
 const ARROW_MARGIN = 2; // px to pull the path end back from node border for arrowhead
 
+/** SVG path command letters that are followed by coordinate pairs. */
+const PATH_CMD_RE = /([MLCQSTAZmlcqstaz])((?:[^MLCQSTAZmlcqstaz])*)/g;
+
+/**
+ * Translate all coordinate pairs in an SVG path `d` string by (dx, dy).
+ *
+ * - M, L, C, Q, S, T: every number pair (x, y) is translated.
+ * - A (arc): only the final x, y endpoint of each arc segment is translated;
+ *   rx, ry, x-rotation, large-arc-flag, and sweep-flag are preserved.
+ * - Z (closepath): no coordinates, passed through unchanged.
+ */
+function translatePathD(d: string, dx: number, dy: number): string {
+  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return d;
+
+  const r = (n: number) => Math.round(n * 100) / 100;
+
+  return d.replace(PATH_CMD_RE, (_, cmd: string, args: string) => {
+    const upper = cmd.toUpperCase();
+    if (upper === 'Z') return cmd;
+
+    const numStr = args.trim().match(/-?[\d.]+(?:e[+-]?\d+)?/gi);
+    if (!numStr) return cmd + args;
+    const values = numStr.map(Number);
+
+    let result: number[];
+    if (upper === 'A') {
+      // Arc params: rx ry x-rotation large-arc-flag sweep-flag x y (7 per segment)
+      result = [];
+      for (let i = 0; i + 6 < values.length; i += 7) {
+        result.push(values[i], values[i + 1], values[i + 2], values[i + 3], values[i + 4]);
+        result.push(r(values[i + 5] + dx), r(values[i + 6] + dy));
+      }
+    } else {
+      result = values.map((v, i) => (i % 2 === 0 ? r(v + dx) : r(v + dy)));
+    }
+
+    return cmd + result.join(',');
+  });
+}
+
+/**
+ * Replace the last two numeric values in an SVG path string with (x, y).
+ * Used to re-anchor the translated path's endpoint to the exact target border.
+ */
+function setPathEndPoint(d: string, x: number, y: number): string {
+  const r = (n: number) => Math.round(n * 100) / 100;
+  const re = /-?[\d.]+(?:e[+-]?\d+)?/gi;
+  const matches: Array<{ index: number; length: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(d)) !== null) {
+    matches.push({ index: m.index, length: m[0].length });
+  }
+  if (matches.length < 2) return d;
+  const last = matches[matches.length - 1];
+  const secondLast = matches[matches.length - 2];
+  return (
+    d.substring(0, secondLast.index) +
+    r(x) +
+    d.substring(secondLast.index + secondLast.length, last.index) +
+    r(y) +
+    d.substring(last.index + last.length)
+  );
+}
+
 /**
  * Find the point on the border of a rectangle (cx, cy, w, h) that lies on the
  * ray from the rectangle center toward (targetX, targetY). Returns a point on
@@ -255,10 +319,26 @@ export function reRouteEdgesInSVG(
     }
 
     const r = (n: number) => Math.round(n * 100) / 100;
-    pathEl.setAttribute(
-      'd',
-      `M${r(exitPt.x)},${r(exitPt.y)}L${r(adjustedEntry.x)},${r(adjustedEntry.y)}`,
-    );
+
+    const originalD = pathEl.getAttribute('d');
+    const startMatch = originalD
+      ? /^[Mm]\s*([-\d.]+(?:e[+-]?\d+)?)[,\s]+([-\d.]+(?:e[+-]?\d+)?)/.exec(originalD.trim())
+      : null;
+
+    if (!startMatch) {
+      // No parseable existing path — fall back to straight line.
+      pathEl.setAttribute(
+        'd',
+        `M${r(exitPt.x)},${r(exitPt.y)}L${r(adjustedEntry.x)},${r(adjustedEntry.y)}`,
+      );
+    } else {
+      // Translate the existing path by the source delta, then re-anchor the endpoint.
+      // This preserves curves (beziers, arcs) while reconnecting both attachment points.
+      const origStartX = parseFloat(startMatch[1]);
+      const origStartY = parseFloat(startMatch[2]);
+      const translated = translatePathD(originalD!, exitPt.x - origStartX, exitPt.y - origStartY);
+      pathEl.setAttribute('d', setPathEndPoint(translated, adjustedEntry.x, adjustedEntry.y));
+    }
 
     // Move edge label to the midpoint of the new path.
     const labelEl = svgEl.querySelector(`[data-id="${cssEscapeId(edgeId)}"]`);

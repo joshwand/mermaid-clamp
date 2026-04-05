@@ -75,6 +75,31 @@ describe('parseConstraints — directional', () => {
     const r2 = parseConstraints(wrap('A south-of B, 130'));
     expect(r1.constraints[0].id).not.toBe(r2.constraints[0].id);
   });
+
+  it('omitted distance defaults to 20', () => {
+    const result = parseConstraints(wrap('D east-of C'));
+    expect(result.constraints).toHaveLength(1);
+    const c = result.constraints[0];
+    expect(c.type).toBe('directional');
+    if (c.type === 'directional') {
+      expect(c.distance).toBe(20);
+    }
+  });
+
+  it('explicit zero distance overrides the default', () => {
+    const result = parseConstraints(wrap('D east-of C, 0'));
+    expect(result.constraints).toHaveLength(1);
+    const c = result.constraints[0];
+    if (c.type === 'directional') {
+      expect(c.distance).toBe(0);
+    }
+  });
+
+  it('omitted distance and explicit 20 produce the same constraint ID', () => {
+    const r1 = parseConstraints(wrap('D east-of C'));
+    const r2 = parseConstraints(wrap('D east-of C, 20'));
+    expect(r1.constraints[0].id).toBe(r2.constraints[0].id);
+  });
 });
 
 // ── Align constraints ─────────────────────────────────────────────────────────
@@ -258,12 +283,12 @@ describe('parseConstraints — malformed lines', () => {
     expect(result.warnings![0]).toContain('this is not a constraint');
   });
 
-  it('parses directional with no distance as distance=0', () => {
+  it('parses directional with no distance as the default (20)', () => {
     const result = parseConstraints(wrap('A south-of B'));
     expect(result.constraints).toHaveLength(1);
     expect(result.warnings!).toHaveLength(0);
     const c = result.constraints[0];
-    if (c.type === 'directional') expect(c.distance).toBe(0);
+    if (c.type === 'directional') expect(c.distance).toBe(20);
   });
 
   it('skips align with invalid axis and adds to warnings', () => {

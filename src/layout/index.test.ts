@@ -386,6 +386,49 @@ describe('reRouteEdgesInSVG', () => {
     expect(nearBBorder).toBe(true);
   });
 
+  it('preserves a cubic-bezier curve shape rather than replacing with a straight line', () => {
+    const diagramId = 'curve-test';
+    // Nodes laid out horizontally; edge has a bezier arc looping below them.
+    const svgEl = makeEdgeSvg(
+      [
+        { id: 'A', transform: 'translate(100, 40)' },
+        { id: 'B', transform: 'translate(300, 40)' },
+      ],
+      [{ id: `${diagramId}-L_A_B_0`, d: 'M140,40 C140,120 260,120 260,40' }],
+    );
+
+    const originalNodes: LayoutNode[] = [
+      { id: 'A', x: 100, y: 40, width: 80, height: 40 },
+      { id: 'B', x: 300, y: 40, width: 80, height: 40 },
+    ];
+    // A moves right 50px; B is unchanged.
+    const solvedNodes: LayoutNode[] = [
+      { id: 'A', x: 150, y: 40, width: 80, height: 40 },
+      { id: 'B', x: 300, y: 40, width: 80, height: 40 },
+    ];
+
+    reRouteEdgesInSVG(svgEl, originalNodes, solvedNodes, [{ id: 'L_A_B_0', start: 'A', end: 'B' }], diagramId);
+
+    const d = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`)?.getAttribute('d') ?? '';
+
+    // The path must still be a cubic bezier (contains a C command), not a straight line.
+    expect(d).toMatch(/[Cc]/);
+
+    // The new start point must lie on A's border (translated path starts at new exit point).
+    const startMatch = /^M([-\d.]+),([-\d.]+)/.exec(d);
+    expect(startMatch).not.toBeNull();
+    if (startMatch) {
+      const sx = parseFloat(startMatch[1]);
+      const sy = parseFloat(startMatch[2]);
+      const A = solvedNodes[0];
+      // Start must be within A's bounding box borders.
+      expect(sx).toBeGreaterThanOrEqual(A.x - A.width / 2 - 0.5);
+      expect(sx).toBeLessThanOrEqual(A.x + A.width / 2 + 0.5);
+      expect(sy).toBeGreaterThanOrEqual(A.y - A.height / 2 - 0.5);
+      expect(sy).toBeLessThanOrEqual(A.y + A.height / 2 + 0.5);
+    }
+  });
+
   it('leaves path unchanged when no nodes moved', () => {
     const diagramId = 'noop-diagram';
     const originalD = 'M 100,40 L 100,160';

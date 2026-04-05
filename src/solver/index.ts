@@ -120,6 +120,62 @@ function applyAlignments(
   }
 }
 
+/**
+ * Sort directional constraints in dependency order so that if constraint Cy
+ * moves nodeB (Cy.nodeA === C.nodeB), Cy is processed before C. This allows
+ * a single relaxation pass to converge regardless of chain depth.
+ *
+ * Falls back to the original order if a cycle is detected.
+ */
+function topoSortDirectionals(constraints: Constraint[]): Constraint[] {
+  const directionals = constraints.filter((c): c is Extract<Constraint, { type: 'directional' }> =>
+    c.type === 'directional',
+  );
+  if (directionals.length === 0) return constraints;
+
+  // Build: nodeA → list of directional constraints that move it.
+  const byNodeA = new Map<string, Array<typeof directionals[number]>>();
+  for (const c of directionals) {
+    if (!byNodeA.has(c.nodeA)) byNodeA.set(c.nodeA, []);
+    byNodeA.get(c.nodeA)!.push(c);
+  }
+
+  // Kahn's algorithm: constraint Cx depends on all Cy where Cy.nodeA === Cx.nodeB
+  // (Cx reads nodeB's position, Cy moves it → Cy must run first).
+  const inDegree = new Map<string, number>(directionals.map((c) => [c.id, 0]));
+  const successors = new Map<string, string[]>(directionals.map((c) => [c.id, []]));
+
+  for (const c of directionals) {
+    for (const writer of byNodeA.get(c.nodeB) ?? []) {
+      successors.get(writer.id)!.push(c.id);
+      inDegree.set(c.id, (inDegree.get(c.id) ?? 0) + 1);
+    }
+  }
+
+  const queue = directionals.filter((c) => inDegree.get(c.id) === 0).map((c) => c.id);
+  const idToConstraint = new Map(directionals.map((c) => [c.id, c]));
+  const sorted: typeof directionals = [];
+
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    sorted.push(idToConstraint.get(id)!);
+    for (const sucId of successors.get(id) ?? []) {
+      const deg = (inDegree.get(sucId) ?? 0) - 1;
+      inDegree.set(sucId, deg);
+      if (deg === 0) queue.push(sucId);
+    }
+  }
+
+  if (sorted.length < directionals.length) {
+    // Cycle detected — fall back to original ordering.
+    return constraints;
+  }
+
+  // Rebuild the full constraint list with directionals replaced by sorted order.
+  let sortedIdx = 0;
+  return constraints.map((c) => (c.type === 'directional' ? sorted[sortedIdx++] : c));
+}
+
 function applyDirectionals(
   constraints: Constraint[],
   nodeMap: Map<string, SolverNode>,
@@ -246,6 +302,11 @@ export function solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet
   // Step 1: Anchors — fixed, applied once before iteration.
   applyAnchors(constraints.constraints, nodeMap);
 
+  // Sort directional constraints in dependency order once before iterating.
+  // This ensures that moving D (due to D east-of C) is visible to any constraint
+  // that reads D's position (e.g. H south-of D) within the same iteration.
+  const orderedConstraints = topoSortDirectionals(constraints.constraints);
+
   // Step 2: Iterative relaxation — align then directional, repeat until convergence.
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     const snapshot = working.map((n) => ({ x: n.x, y: n.y }));
@@ -253,8 +314,8 @@ export function solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet
     // Directionals run first so that by the time alignments execute, displaced
     // nodes already reflect their constraint-driven positions. Alignment then
     // uses max-y to pull undisplaced nodes down to meet them.
-    applyDirectionals(constraints.constraints, nodeMap, peers);
-    applyAlignments(constraints.constraints, nodeMap, peers);
+    applyDirectionals(orderedConstraints, nodeMap, peers);
+    applyAlignments(orderedConstraints, nodeMap, peers);
 
     // Convergence check.
     const maxDelta = working.reduce((max, n, i) => {
