@@ -423,6 +423,13 @@ export function reRouteEdgesInSVG(
 // ── Waypoint edge routing ─────────────────────────────────────────────────────
 
 /**
+ * Catmull-rom tension factor for bezier handle length.
+ * Standard catmull-rom uses 1/6 ≈ 0.167 (shorter, tighter handles).
+ * Higher values produce longer handles and more pronounced, smoother curves.
+ */
+const SPLINE_TENSION = 1 / 3;
+
+/**
  * Build a smooth catmull-rom spline SVG path through an ordered sequence of
  * points. Interior points are passed through exactly; endpoints have zero
  * tangent (the phantom endpoints are duplicated).
@@ -450,10 +457,10 @@ export function buildSplinePath(points: Array<{ x: number; y: number }>): string
     const p2 = points[i + 1];
     const p3 = points[Math.min(points.length - 1, i + 2)];
 
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    const cp1x = p1.x + (p2.x - p0.x) * SPLINE_TENSION;
+    const cp1y = p1.y + (p2.y - p0.y) * SPLINE_TENSION;
+    const cp2x = p2.x - (p3.x - p1.x) * SPLINE_TENSION;
+    const cp2y = p2.y - (p3.y - p1.y) * SPLINE_TENSION;
 
     d += `C${r(cp1x)},${r(cp1y)},${r(cp2x)},${r(cp2y)},${r(p2.x)},${r(p2.y)}`;
   }
