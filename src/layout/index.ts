@@ -174,14 +174,19 @@ function buildPathD(segments: PathSegment[]): string {
 
 /**
  * Re-anchor an SVG path so its first coordinate pair moves to `newStart` and
- * its last coordinate pair moves to `newEnd`, with every intermediate coordinate
- * pair receiving a linearly blended delta between the two.
+ * its last coordinate pair moves to `newEnd`.
  *
- * This preserves bezier curve shapes: control points near the source move with
- * the source; control points near the target move with the target; no kinks.
+ * Uses a 2D similarity transform (uniform scale + rotation + translation) that
+ * exactly maps oldStart→newStart and oldEnd→newEnd. Every intermediate control
+ * point is transformed by the same matrix, so the bezier curve shape is
+ * preserved exactly — it just scales and rotates to fit the new endpoints.
+ * No kinks, no linear blending distortion.
+ *
+ * Falls back to a linear positional blend when the original path is degenerate
+ * (start === end, i.e. zero-length).
  *
  * For A (arc) commands only the endpoint pair (the last 2 of the 7 arc params)
- * participates in blending; rx, ry, rotation and flags are unchanged.
+ * participates in the transform; rx, ry, rotation and flags are unchanged.
  *
  * Returns null if the path has fewer than two coordinate pairs.
  */
@@ -193,7 +198,7 @@ function reanchorPath(
   const segments = parsePathSegments(d);
 
   // Build an ordered list of references into segments[].nums that represent
-  // coordinate (x,y) pairs — the things we will blend.
+  // coordinate (x,y) pairs — the coordinates we will transform.
   type PairRef = { si: number; ni: number };
   const refs: PairRef[] = [];
 
@@ -215,27 +220,59 @@ function reanchorPath(
 
   if (refs.length < 2) return null;
 
-  // Compute source and target deltas from the current first/last pairs.
   const newSegs = segments.map((s) => ({ cmd: s.cmd, nums: [...s.nums] }));
   const first = refs[0];
   const last  = refs[refs.length - 1];
 
-  const sourceDelta = {
-    x: newStart.x - segments[first.si].nums[first.ni],
-    y: newStart.y - segments[first.si].nums[first.ni + 1],
+  const oldStart = {
+    x: segments[first.si].nums[first.ni],
+    y: segments[first.si].nums[first.ni + 1],
   };
-  const targetDelta = {
-    x: newEnd.x - segments[last.si].nums[last.ni],
-    y: newEnd.y - segments[last.si].nums[last.ni + 1],
+  const oldEnd = {
+    x: segments[last.si].nums[last.ni],
+    y: segments[last.si].nums[last.ni + 1],
   };
 
-  // Apply linearly blended deltas: t=0 → sourceDelta, t=1 → targetDelta.
-  const N = refs.length - 1;
-  for (let i = 0; i < refs.length; i++) {
-    const { si, ni } = refs[i];
-    const t = N > 0 ? i / N : 0;
-    newSegs[si].nums[ni]     = segments[si].nums[ni]     + sourceDelta.x * (1 - t) + targetDelta.x * t;
-    newSegs[si].nums[ni + 1] = segments[si].nums[ni + 1] + sourceDelta.y * (1 - t) + targetDelta.y * t;
+  const oldDx = oldEnd.x - oldStart.x;
+  const oldDy = oldEnd.y - oldStart.y;
+  const oldLen = Math.hypot(oldDx, oldDy);
+
+  const newDx = newEnd.x - newStart.x;
+  const newDy = newEnd.y - newStart.y;
+  const newLen = Math.hypot(newDx, newDy);
+
+  if (oldLen < 0.01) {
+    // Degenerate original path (start === end): fall back to positional blend.
+    const N = refs.length - 1;
+    for (let i = 0; i < refs.length; i++) {
+      const { si, ni } = refs[i];
+      const t = N > 0 ? i / N : 0;
+      newSegs[si].nums[ni]     = newStart.x * (1 - t) + newEnd.x * t;
+      newSegs[si].nums[ni + 1] = newStart.y * (1 - t) + newEnd.y * t;
+    }
+    return buildPathD(newSegs);
+  }
+
+  // Similarity transform: scale = newLen/oldLen, rotate = angle(new) - angle(old).
+  // Transform each point P:
+  //   1. Translate origin to oldStart
+  //   2. Scale by `scale`
+  //   3. Rotate by `theta`
+  //   4. Translate to newStart
+  // This maps oldStart → newStart and oldEnd → newEnd exactly.
+  const scale    = newLen / oldLen;
+  const oldAngle = Math.atan2(oldDy, oldDx);
+  const newAngle = Math.atan2(newDy, newDx);
+  const theta    = newAngle - oldAngle;
+  const cosT     = Math.cos(theta);
+  const sinT     = Math.sin(theta);
+
+  for (const { si, ni } of refs) {
+    const px = segments[si].nums[ni]     - oldStart.x;
+    const py = segments[si].nums[ni + 1] - oldStart.y;
+    // Scale then rotate then translate.
+    newSegs[si].nums[ni]     = newStart.x + scale * (px * cosT - py * sinT);
+    newSegs[si].nums[ni + 1] = newStart.y + scale * (px * sinT + py * cosT);
   }
 
   return buildPathD(newSegs);
