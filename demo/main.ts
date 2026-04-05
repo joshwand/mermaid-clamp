@@ -1,9 +1,9 @@
 import mermaid from 'mermaid';
 import constraintLayouts, { setDiagramText } from '../src/index.js';
 
-// ── Diagram source ────────────────────────────────────────────────────────────
+// ── Default content ───────────────────────────────────────────────────────────
 
-const BASE_DIAGRAM = `flowchart TD
+const DEFAULT_DIAGRAM = `flowchart TD
     A["Start (A)"] --> B["Validate Input (B)"]
     B --> C["Process (C)"]
     B --> D["Reject (D)"]
@@ -13,8 +13,7 @@ const BASE_DIAGRAM = `flowchart TD
     F --> G
     D --> H["Log Error (H)"]`;
 
-const CONSTRAINT_BLOCK = `
-%% @layout-constraints v1
+const DEFAULT_CONSTRAINTS = `%% @layout-constraints v1
 %% align B, C, v
 %% D east-of C, 220
 %% align D, H, v
@@ -23,8 +22,6 @@ const CONSTRAINT_BLOCK = `
 %% H south-of D, 120
 %% align G, H, h
 %% @end-layout-constraints`;
-
-const DIAGRAM_WITH_CONSTRAINTS = BASE_DIAGRAM + '\n' + CONSTRAINT_BLOCK;
 
 // ── Mermaid setup ─────────────────────────────────────────────────────────────
 
@@ -36,48 +33,75 @@ mermaid.initialize({
 
 mermaid.registerLayoutLoaders(constraintLayouts);
 
-// ── Render ────────────────────────────────────────────────────────────────────
+// ── DOM refs ──────────────────────────────────────────────────────────────────
 
 const statusEl = document.getElementById('status')!;
 const beforeEl = document.getElementById('before')!;
-const afterEl = document.getElementById('after')!;
-const constraintTextEl = document.getElementById('constraint-text')!;
+const afterEl  = document.getElementById('after')!;
+const diagramTextarea    = document.getElementById('diagram-source') as HTMLTextAreaElement;
+const constraintTextarea = document.getElementById('constraint-source') as HTMLTextAreaElement;
 
-constraintTextEl.textContent = CONSTRAINT_BLOCK.trim();
+diagramTextarea.value    = DEFAULT_DIAGRAM;
+constraintTextarea.value = DEFAULT_CONSTRAINTS;
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+let renderCount = 0;
 
 async function renderDiagram(
-  id: string,
+  idBase: string,
   text: string,
   layout: string,
   container: HTMLElement,
 ): Promise<void> {
-  const diagramText = layout === 'constrained-dagre'
-    ? text
-    : text.replace(/\nflowchart TD/, 'flowchart TD'); // unchanged
-
-  // Inject the layout directive into the diagram text
-  const withLayout = `%%{init: {"flowchart": {"htmlLabels": true}, "layout": "${layout}"}}%%\n${diagramText}`;
+  const id = `${idBase}-${renderCount}`;
+  const withLayout = `%%{init: {"flowchart": {"htmlLabels": true}, "layout": "${layout}"}}%%\n${text}`;
 
   if (layout === 'constrained-dagre') {
-    setDiagramText(id, diagramText);
+    setDiagramText(id, text);
   }
 
   const { svg } = await mermaid.render(id, withLayout);
   container.innerHTML = svg;
 }
 
-async function main(): Promise<void> {
+async function render(): Promise<void> {
+  renderCount++;
+  const baseDiagram   = diagramTextarea.value;
+  const constraintSrc = constraintTextarea.value;
+  const withConstraints = `${baseDiagram}\n${constraintSrc}`;
+
+  statusEl.className   = 'pending';
+  statusEl.textContent = 'Rendering…';
+
   try {
     await Promise.all([
-      renderDiagram('diagram-before', BASE_DIAGRAM, 'dagre', beforeEl),
-      renderDiagram('diagram-after', DIAGRAM_WITH_CONSTRAINTS, 'constrained-dagre', afterEl),
+      renderDiagram('diagram-before', baseDiagram,     'dagre',            beforeEl),
+      renderDiagram('diagram-after',  withConstraints, 'constrained-dagre', afterEl),
     ]);
-    statusEl.textContent = 'Rendered. Constraints applied to the right diagram.';
+    statusEl.className   = '';
+    statusEl.textContent = 'Rendered.';
   } catch (err) {
-    statusEl.className = 'error';
-    statusEl.textContent = `Render error: ${err instanceof Error ? err.message : String(err)}`;
+    statusEl.className   = 'error';
+    statusEl.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
     console.error(err);
   }
 }
 
-main();
+// ── Debounced re-render on textarea input ─────────────────────────────────────
+
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleRender(): void {
+  statusEl.className   = 'pending';
+  statusEl.textContent = 'Waiting…';
+  if (debounceTimer !== null) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(render, 750);
+}
+
+diagramTextarea.addEventListener('input', scheduleRender);
+constraintTextarea.addEventListener('input', scheduleRender);
+
+// ── Initial render ────────────────────────────────────────────────────────────
+
+render();
