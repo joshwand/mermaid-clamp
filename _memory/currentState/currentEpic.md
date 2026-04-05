@@ -26,11 +26,14 @@
 
 | Task | Status |
 |------|--------|
+| BUG-1 — Restore curved arrows | 🐛 Backlog (fix before continuing) |
+| BUG-2 — Default offset for DIR-of | 🐛 Backlog (fix before continuing) |
+| BUG-3 — DIR-of cascade to descendants | 🐛 Backlog (fix before continuing) |
 | 1 — Project Scaffold + Types | ✅ Complete |
-| 2 — Constraint Parser | ⬜ Next |
-| 3 — Constraint Serializer | ⬜ |
-| 4 — Constraint Solver | ⬜ |
-| 5 — Layout Engine Integration | ⬜ |
+| 2 — Constraint Parser | ✅ Complete |
+| 3 — Constraint Serializer | ✅ Complete |
+| 4 — Constraint Solver | ✅ Complete |
+| 5 — Layout Engine Integration | ✅ Complete |
 | 6 — Edge Router | ⬜ |
 | 7 — State Manager | ⬜ |
 | 8 — Constraint Inference Engine | ⬜ |
@@ -43,11 +46,7 @@
 
 ## Next Steps
 
-Agent should:
-1. Check `_memory/currentState/currentTaskState.md` for Task 1 completion status
-2. Build Showboat demo for Task 1 if not yet done
-3. Wait for human review
-4. Begin Task 2 (Constraint Parser) from `theBacklog.md`
+Fix BUG-1, BUG-2, BUG-3 (see theBacklog.md) before continuing to Task 6.
 
 ## Active Risks
 

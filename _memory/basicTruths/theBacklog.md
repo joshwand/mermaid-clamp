@@ -4,6 +4,42 @@ Tasks are ordered for sequential implementation. Each task produces a working (i
 
 ---
 
+## Bugs (fix before continuing)
+
+### BUG-1: Curved arrows replaced with straight lines
+
+**Symptom:** After constraint solving, all edge paths are replaced with straight `M...L...` lines, discarding mermaid's original curved/orthogonal routing.
+
+**Root cause:** `reRouteEdgesInSVG` in `src/layout/index.ts` currently writes `M<borderPoint>L<borderPoint>` for every moved edge. This throws away the original path shape.
+
+**Expected behaviour:** Only the start/end attachment points should change. The intermediate curve (arcs, cubic beziers, orthogonal bends) should be preserved and re-anchored to the new border intersection points. Approach: translate the existing path by the delta of the new vs old attachment points; only fall back to straight-line if the path is unparseable.
+
+**Acceptance:** Edges look curved after constraint solving, matching mermaid's default style.
+
+---
+
+### BUG-2: Directional constraints lack a default offset
+
+**Symptom:** `D east-of C` (no distance specified) places D touching C (0px gap), which is almost never the desired result and typically causes overlap.
+
+**Expected behaviour:** When no distance is given, apply a sensible default gap (e.g. 20px edge-to-edge). The user can override with an explicit value.
+
+**Acceptance:** `D east-of C` with no distance produces a visible gap; `D east-of C, 0` still means touching.
+
+---
+
+### BUG-3: Directional constraints do not drag descendants
+
+**Symptom:** `D east-of C, 50` moves D but does not move any nodes that are south-of/aligned-with D. Those nodes can end up on the wrong side of D (e.g. visually above D when they should be below it), or overlapping.
+
+**Root cause:** The solver applies `east-of` to D's position alone. Nodes constrained relative to D are updated in the same relaxation iteration and may not see D's new position until the next iteration — or may never converge if the dependency chain is deeper than the iteration count allows.
+
+**Expected behaviour:** When a node is moved by a directional constraint, all nodes that have directional or alignment constraints relative to it should be updated in the same pass (cascade). The repulsion pass should only be a last resort for genuinely unconstrained overlaps, not a substitute for correct cascade ordering.
+
+**Acceptance:** `D east-of C, 50` + `H south-of D, 20` → H is always below D's new position, never above or overlapping.
+
+---
+
 ## Task 1: Project Scaffold + Type Definitions
 
 **Goal:** Buildable, testable project skeleton with all core types defined.
