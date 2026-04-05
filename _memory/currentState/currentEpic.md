@@ -1,8 +1,8 @@
 # Current Epic
 
-## Focus: Pre-Implementation Specification
+## Focus: Phase 1 Implementation
 
-**Status:** Spec complete. Ready for coding agent to begin Task 1.
+**Status:** Task 1 complete. Ready for Task 2 (Constraint Parser).
 
 ## Key Decisions Made
 
@@ -20,12 +20,33 @@
 
 7. **Showboat + Rodney verification.** Agent builds a demo document at each milestone; human reviews before next task.
 
+8. **Vite `output.exports: "named"`** in rollupOptions — suppresses "named+default exports together" warning, required because `src/index.ts` uses both `export default` and named re-exports.
+
+## Task Status
+
+| Task | Status |
+|------|--------|
+| BUG-1 — Restore curved arrows | 🐛 Backlog (fix before continuing) |
+| BUG-2 — Default offset for DIR-of | 🐛 Backlog (fix before continuing) |
+| BUG-3 — DIR-of cascade to descendants | 🐛 Backlog (fix before continuing) |
+| 1 — Project Scaffold + Types | ✅ Complete |
+| 2 — Constraint Parser | ✅ Complete |
+| 3 — Constraint Serializer | ✅ Complete |
+| 4 — Constraint Solver | ✅ Complete |
+| 5 — Layout Engine Integration | ✅ Complete |
+| 6 — Edge Router | ⬜ |
+| 7 — State Manager | ⬜ |
+| 8 — Constraint Inference Engine | ⬜ |
+| 9 — Editor Overlay Basic Drag | ⬜ |
+| 10 — Affordance Rendering | ⬜ |
+| 11 — Shift+Drag Constraint Selection | ⬜ |
+| 12 — Export + E2E Integration | ⬜ |
+| 13 — User Documentation | ⬜ |
+| 14 — Final Demo + Polish | ⬜ |
+
 ## Next Steps
 
-Agent should:
-1. Read all `_memory/basicTruths/*` files
-2. Read `_memory/knowledgeBase/reference/ConstraintLanguageSpec.md`
-3. Begin Task 1 from `theBacklog.md`
+Fix BUG-1, BUG-2, BUG-3 (see theBacklog.md) before continuing to Task 6.
 
 ## Active Risks
 

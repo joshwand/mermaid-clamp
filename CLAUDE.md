@@ -642,3 +642,60 @@ def _fallback_button_detection(page):
               return action_name
     return None
 ```
+
+# project-conventions.md
+
+---
+description: Project-specific conventions for mermaid-layout-constraints.
+globs:
+alwaysApply: true
+---
+
+## Build and Test Commands
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run all tests (Vitest)
+pnpm test
+
+# Watch mode
+pnpm test:watch
+
+# Build all outputs (ESM + CJS + types)
+pnpm build
+
+# TypeScript type check only
+pnpm typecheck
+```
+
+## Source Layout
+
+```
+src/
+  types.ts              # All shared types — edit here, not in modules
+  index.ts              # Main entry point (layout engine + public API)
+  editor.ts             # Editor overlay entry point
+  parser/index.ts       # Constraint parser (Task 2)
+  serializer/index.ts   # Constraint serializer (Task 3)
+  solver/index.ts       # Constraint solver (Task 4)
+  layout/index.ts       # Mermaid layout engine integration (Task 5)
+  state/StateManager.ts # Undo/redo state manager (Task 7)
+  inference/index.ts    # Constraint inference engine (Task 8)
+  editor/EditorOverlay.ts # Interactive SVG editor (Tasks 9-12)
+```
+
+## Conventions
+
+- TypeScript strict mode. No `any` except at mermaid interop boundaries (comment `// mermaid internal`).
+- Pure functions in `parser/`, `serializer/`, `solver/`. Side effects only in `editor/` and `state/`.
+- Test files colocated: `foo.ts` → `foo.test.ts`.
+- Constraint solver must be deterministic. Same inputs → same outputs.
+- All imports within `src/` use `.js` extension (required for ESM resolution).
+- Vitest with `describe/it/expect`. Integration tests use actual mermaid render calls.
+- Use `pnpm` (not npm or yarn).
+
+## Task Workflow
+
+Each backlog task corresponds to a module. Implement, write tests, run `pnpm test && pnpm build`, then build a Showboat demo before marking the task done.

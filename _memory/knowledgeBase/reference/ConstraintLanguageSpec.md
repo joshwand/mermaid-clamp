@@ -50,49 +50,61 @@ In the constraint block, edge IDs are written as `A-->B` (source, arrow, target)
 
 If multiple edges exist between the same pair of nodes, they are disambiguated by order of appearance (this is a known limitation — may need indexing syntax in v2).
 
+## Invariant: No Overlapping Nodes
+
+**NO OVERLAPS ARE EVER ALLOWED.**
+
+After constraint solving, the bounding boxes of all nodes must be non-overlapping. This is a hard invariant enforced by the solver's post-solve repulsion pass (`resolveAllOverlaps`). If constraints would otherwise cause overlaps, nodes are pushed apart along the axis of minimum overlap until all bounding boxes are clear.
+
+This invariant holds even when user-specified constraints create geometrically impossible situations (e.g., `align B, D, h` forces B and D to the same row when they would otherwise overlap). The repulsion pass resolves the collision automatically.
+
 ## Constraint Types
 
 ### Directional Offsets
 
-Place a node at a specific distance in a cardinal direction from another node. Distance is center-to-center in pixels.
+Place a node at a specific distance in a cardinal direction from another node. Distance is **edge-to-edge** in pixels (gap between the two node borders, not center-to-center).
 
 ```
 %% A south-of B, 120
 %% A north-of B, 80
 %% A east-of B, 100
 %% A west-of B, 60
+%% A east-of B      ← distance defaults to 0 (touching edges)
 ```
 
-**Semantics:**
-- `A south-of B, d` → `A.centerY = B.centerY + d`
-- `A north-of B, d` → `A.centerY = B.centerY - d`
-- `A east-of B, d` → `A.centerX = B.centerX + d`
-- `A west-of B, d` → `A.centerX = B.centerX - d`
+**Semantics (edge-to-edge):**
+- `A south-of B, d` → `A.top = B.bottom + d`  (i.e. `A.y = B.y + (B.h + A.h)/2 + d`)
+- `A north-of B, d` → `A.bottom = B.top - d`
+- `A east-of B, d`  → `A.left = B.right + d`
+- `A west-of B, d`  → `A.right = B.left - d`
 
 The first node (`A`) is the one that moves. The second node (`B`) is the reference.
 
-**Distance is required.** To express "A is somewhere south of B" without a fixed distance, use alignment instead or omit and let the base layout decide.
+Distance is optional; omitting it is equivalent to `d = 0` (nodes touch edge-to-edge).
 
 ### Alignment
 
-Align two nodes on an axis.
+Align two or more nodes on an axis.
 
 ```
 %% align A, B, h
 %% align A, B, v
+%% align A, B, C, h
 ```
 
 **Semantics:**
-- `align A, B, h` → `A.centerY = B.centerY` (horizontal alignment = same vertical position)
-- `align A, B, v` → `A.centerX = B.centerX` (vertical alignment = same horizontal position)
+- `align A, B, h` → all listed nodes share the same Y center (horizontal alignment = same row)
+- `align A, B, v` → all listed nodes share the same X center (vertical alignment = same column)
 
-**Which node moves?** The node that displaced less from its base layout position. If both are equally displaced, average.
+**First-is-anchor rule:** The **first listed node is the reference** and does not move. All subsequent nodes shift to match it. If any node in the list is pinned (`anchor`), the pinned node overrides as the reference.
 
 **Multi-node alignment:**
 ```
 %% align A, B, C, h
 ```
-All listed nodes share the same Y coordinate (averaged from base positions).
+B and C move to A's Y coordinate. A does not move.
+
+**No overlaps guaranteed:** if the alignment places nodes on top of each other, the repulsion pass separates them automatically.
 
 ### Group
 

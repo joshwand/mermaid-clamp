@@ -4,138 +4,39 @@ Tasks are ordered for sequential implementation. Each task produces a working (i
 
 ---
 
-## Task 1: Project Scaffold + Type Definitions
+## Bugs (fix before continuing)
 
-**Goal:** Buildable, testable project skeleton with all core types defined.
+### BUG-1: Curved arrows replaced with straight lines
 
-**Work:**
-- Initialize npm project with TypeScript, Vite (library mode), Vitest
-- Configure dual ESM/CJS output with two entry points (main, editor)
-- Define all types in `src/types.ts` (see `reference/ConstraintLanguageSpec.md`)
-- Create placeholder modules for all source directories
-- Add mermaid as peer dependency
-- Install showboat + rodney as dev dependencies
-- Write a smoke test that imports the package and calls a no-op layout loader
-- Create `CLAUDE.md` with project conventions, build/test/verify commands
+**Symptom:** After constraint solving, all edge paths are replaced with straight `M...L...` lines, discarding mermaid's original curved/orthogonal routing.
 
-**Acceptance:** `pnpm build` succeeds, `pnpm test` passes with smoke test.
+**Root cause:** `reRouteEdgesInSVG` in `src/layout/index.ts` currently writes `M<borderPoint>L<borderPoint>` for every moved edge. This throws away the original path shape.
 
-**Verification:** `showboat init demos/task-01.md` → note describing scaffold → exec build + test → human review.
+**Expected behaviour:** Only the start/end attachment points should change. The intermediate curve (arcs, cubic beziers, orthogonal bends) should be preserved and re-anchored to the new border intersection points. Approach: translate the existing path by the delta of the new vs old attachment points; only fall back to straight-line if the path is unparseable.
 
-**Depends on:** Nothing
+**Acceptance:** Edges look curved after constraint solving, matching mermaid's default style.
 
 ---
 
-## Task 2: Constraint Parser
+### BUG-2: Directional constraints lack a default offset
 
-**Goal:** Parse `%% @layout-constraints` blocks into a `ConstraintSet`.
+**Symptom:** `D east-of C` (no distance specified) places D touching C (0px gap), which is almost never the desired result and typically causes overlap.
 
-**Work:**
-- Implement `parseConstraints(mermaidText: string): ConstraintSet`
-- Handle all constraint types from the language spec (directional offsets, alignment, group, anchor, waypoint)
-- Graceful degradation: missing block → empty set, malformed line → warn + skip
-- Parse edge IDs: `A-->B`, `A---B`, `A-.->B`
-- Generate stable constraint IDs (deterministic hash of type + params)
+**Expected behaviour:** When no distance is given, apply a sensible default gap (e.g. 20px edge-to-edge). The user can override with an explicit value.
 
-**Tests:**
-- Empty input → empty ConstraintSet
-- Single constraint of each type (all 9: north/south/east/west-of, align h/v, group, anchor, waypoint)
-- Multiple constraints
-- Malformed lines (skipped with warning)
-- Waypoint creation and subsequent waypoint constraints
-- Edge ID parsing for all arrow styles
-
-**Verification:** Showboat doc showing parser output for various inputs (exec with JSON output).
-
-**Depends on:** Task 1
+**Acceptance:** `D east-of C` with no distance produces a visible gap; `D east-of C, 0` still means touching.
 
 ---
 
-## Task 3: Constraint Serializer
+### BUG-3: Directional constraints do not drag descendants
 
-**Goal:** Serialize `ConstraintSet` back to comment block format; round-trip with parser.
+**Symptom:** `D east-of C, 50` moves D but does not move any nodes that are south-of/aligned-with D. Those nodes can end up on the wrong side of D (e.g. visually above D when they should be below it), or overlapping.
 
-**Work:**
-- `serializeConstraints(cs: ConstraintSet): string`
-- `injectConstraints(mermaidText: string, cs: ConstraintSet): string` — replace or append
-- `stripConstraints(mermaidText: string): string` — remove block
-- Output sorted by type then first node ID (deterministic, diffable)
+**Root cause:** The solver applies `east-of` to D's position alone. Nodes constrained relative to D are updated in the same relaxation iteration and may not see D's new position until the next iteration — or may never converge if the dependency chain is deeper than the iteration count allows.
 
-**Tests:**
-- Round-trip: `parse(serialize(cs)) === cs` for all types
-- `injectConstraints(text, parse(text))` preserves block
-- Deterministic: serialize same set twice → identical strings
-- Empty set → no block
-- Inject into text with/without existing block
+**Expected behaviour:** When a node is moved by a directional constraint, all nodes that have directional or alignment constraints relative to it should be updated in the same pass (cascade). The repulsion pass should only be a last resort for genuinely unconstrained overlaps, not a substitute for correct cascade ordering.
 
-**Verification:** Showboat doc showing round-trip examples and diff output.
-
-**Depends on:** Task 2
-
----
-
-## Task 4: Constraint Solver
-
-**Goal:** Given initial node positions and a `ConstraintSet`, compute adjusted positions. Waypoints participate as shadow nodes.
-
-**Work:**
-- `solveConstraints(nodes: LayoutNode[], constraints: ConstraintSet): LayoutNode[]`
-- `LayoutNode = { id, x, y, width, height, isWaypoint?: boolean }`
-- Priority ordering: anchor > group > align > directional offset
-- Iterative relaxation:
-  1. Apply anchors (fixed, no iteration)
-  2. Compute group bounding boxes, establish group centroids
-  3. Apply alignments (move the node that displaced less from base)
-  4. Apply directional offsets: `A south-of B, 120` → `A.y = B.y + 120`
-  5. Solve waypoint constraints (same rules — they're just zero-size nodes)
-  6. Check convergence (max delta < 0.5px), max 10 iterations
-- Conflict resolution: higher priority wins; equal priority → average
-- Groups: maintain relative positions within group, but move group as unit for alignment/offset of any member
-
-**Tests:**
-- Single `align A, B, h` → same Y
-- Single `A south-of B, 120` → A.y = B.y + 120
-- Anchor pins node, alignment adjusts the other
-- Group of 3 aligns with external node
-- Waypoint `wp1 west-of C, 20` → wp1.x = C.x - C.width/2 - 20
-- Conflicting constraints: priority resolution
-- No constraints → positions unchanged
-- Performance: 50 nodes, 10 constraints < 10ms
-
-**Verification:** Showboat doc with solver input/output tables and diagrams of before/after positions.
-
-**Depends on:** Task 1
-
----
-
-## Task 5: Layout Engine Integration
-
-**Goal:** Register as a mermaid layout engine that wraps dagre with constraint solving.
-
-**Work:**
-- Implement layout function matching mermaid's signature
-- Call dagre layout first
-- Parse constraints from diagram text
-- Create zero-size shadow nodes for waypoints at edge midpoints
-- Run constraint solver on dagre output + waypoint nodes
-- Write adjusted positions back to LayoutData
-- Register as `constrained-dagre` via `LayoutLoaderDefinition[]`
-- Handle subgraphs: solver operates on flattened node list, adjusts cluster bounds after
-
-**Key challenge — accessing diagram text from within layout callback:**
-- Investigate whether LayoutData or config carries raw text
-- Fallback: module-scoped `Map<diagramId, ConstraintSet>` populated by a pre-render parse step
-- Document whichever approach works in `designs/ConstraintSolver.md`
-
-**Tests:**
-- Integration: render flowchart with `layout: constrained-dagre` and one constraint → positions differ from default dagre
-- Subgraph: constraint references node inside subgraph
-- Waypoints: edge with waypoint routes through waypoint position
-- No constraints → output matches default dagre
-
-**Verification:** Showboat doc with Rodney screenshots of the same diagram rendered with dagre vs constrained-dagre. Side-by-side comparison. **Human must visually confirm the constraint was applied correctly.**
-
-**Depends on:** Tasks 2, 3, 4
+**Acceptance:** `D east-of C, 50` + `H south-of D, 20` → H is always below D's new position, never above or overlapping.
 
 ---
 
