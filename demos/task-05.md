@@ -49,3 +49,11 @@ node demos/layout-demo.mjs
 ```
 
 96/96 tests passing. Constraint application verified: A.y = B.y + 200 PASS, align B,C,v PASS. mermaid dagre chunk stays external (10kB bundle, was 757kB when bundled). Ready for human review.
+
+```bash {image}
+![Before/after layout comparison showing constraints applied to the right diagram](demos/task-05-before-after.png)
+```
+
+![Before/after layout comparison showing constraints applied to the right diagram](12daad39-2026-04-05.png)
+
+Constraints verified against SVG transforms: align B,C,v (B.x=C.x=172.87 ✓), D east-of B 200 (Δx=200 ✓), align E,F,h (E.y=F.y=393 ✓), E south-of C 150 (Δy=150 ✓), align H,G,h (H.y=G.y=399 ✓). All 5 constraints satisfied.
