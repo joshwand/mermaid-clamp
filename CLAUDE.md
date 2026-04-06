@@ -244,9 +244,8 @@ showboat note demos/task-NN.md "Ready for review."
 3. Check relevant `knowledgeBase/` files (designs, reference, requirements)
 4. Update `currentTaskState.md` with the task plan
 5. Implement + test
-6. Build Showboat demo document
-7. Update `currentTaskState.md` with results
-8. Update `currentEpic.md` if major decisions were made
+6. ALWAYS build Showboat demo document
+7. ALWAYS update all documentation and memory to reflect current state. 
 9. **Wait for human review before next task**
   
 ## Documentation Updates
@@ -695,7 +694,3 @@ src/
 - All imports within `src/` use `.js` extension (required for ESM resolution).
 - Vitest with `describe/it/expect`. Integration tests use actual mermaid render calls.
 - Use `pnpm` (not npm or yarn).
-
-## Task Workflow
-
-Each backlog task corresponds to a module. Implement, write tests, run `pnpm test && pnpm build`, then build a Showboat demo before marking the task done.
