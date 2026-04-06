@@ -55,7 +55,7 @@ describe('serializeConstraints', () => {
     expect(serializeConstraints(cs1)).toBe(serializeConstraints(cs2));
   });
 
-  it('sorts: waypoint before anchor before group before align before directional', () => {
+  it('sorts: waypoint before bezier before anchor before group before align before directional', () => {
     const cs = parseConstraints(FULL_TEXT);
     const lines = serializeConstraints(cs).split('\n').slice(1, -1).map(l => l.slice(3));
     expect(lines[0]).toMatch(/^waypoint/);
@@ -104,6 +104,46 @@ describe('serializeConstraints', () => {
     };
     expect(serializeConstraints(cs)).toContain('%% waypoint A-->B as wp1');
   });
+
+  it('serializes a bezier constraint (waypoint form, one length)', () => {
+    const cs: ConstraintSet = {
+      version: 1,
+      constraints: [{ type: 'bezier', id: 'x', targetId: 'wp1', incomingLength: 60 }],
+    };
+    expect(serializeConstraints(cs)).toContain('%% bezier wp1, 60');
+  });
+
+  it('serializes a bezier constraint (waypoint form, two lengths)', () => {
+    const cs: ConstraintSet = {
+      version: 1,
+      constraints: [{ type: 'bezier', id: 'x', targetId: 'wp1', incomingLength: 60, outgoingLength: 80 }],
+    };
+    expect(serializeConstraints(cs)).toContain('%% bezier wp1, 60, 80');
+  });
+
+  it('serializes a bezier constraint (segment form)', () => {
+    const cs: ConstraintSet = {
+      version: 1,
+      constraints: [{ type: 'bezier', id: 'x', targetId: 'A-->wp1', incomingLength: 50 }],
+    };
+    expect(serializeConstraints(cs)).toContain('%% bezier A-->wp1, 50');
+  });
+
+  it('serializes debug directive in the block', () => {
+    const cs: ConstraintSet = {
+      version: 1,
+      constraints: [],
+      debug: true,
+    };
+    const out = serializeConstraints(cs);
+    expect(out).toContain('%% debug');
+    expect(out).toContain('@layout-constraints v1');
+  });
+
+  it('returns non-empty string for debug-only ConstraintSet', () => {
+    const cs: ConstraintSet = { version: 1, constraints: [], debug: true };
+    expect(serializeConstraints(cs)).not.toBe('');
+  });
 });
 
 // ── Round-trip ────────────────────────────────────────────────────────────────
@@ -128,6 +168,28 @@ describe('round-trip: parse → serialize → parse', () => {
     const originalIds = original.constraints.map(c => c.id).sort();
     const reparsedIds = reparsed.constraints.map(c => c.id).sort();
     expect(reparsedIds).toEqual(originalIds);
+  });
+
+  it('round-trips bezier constraint', () => {
+    const text = `%% @layout-constraints v1\n%% waypoint A-->B as wp1\n%% bezier wp1, 60, 80\n%% @end-layout-constraints`;
+    const cs = parseConstraints(text);
+    const reparsed = parseConstraints(serializeConstraints(cs));
+    const bc = reparsed.constraints.find(c => c.type === 'bezier');
+    expect(bc).toBeDefined();
+    if (bc && bc.type === 'bezier') {
+      expect(bc.targetId).toBe('wp1');
+      expect(bc.incomingLength).toBe(60);
+      expect(bc.outgoingLength).toBe(80);
+    }
+  });
+
+  it('round-trips debug directive', () => {
+    const text = `%% @layout-constraints v1\n%% debug\n%% A south-of B, 20\n%% @end-layout-constraints`;
+    const cs = parseConstraints(text);
+    expect(cs.debug).toBe(true);
+    const reparsed = parseConstraints(serializeConstraints(cs));
+    expect(reparsed.debug).toBe(true);
+    expect(reparsed.constraints).toHaveLength(1);
   });
 });
 

@@ -6,6 +6,7 @@ import type {
   GroupConstraint,
   AnchorConstraint,
   WaypointDeclaration,
+  BezierHandleConstraint,
   Direction,
   Axis,
 } from '../types.js';
@@ -240,6 +241,44 @@ function parseWaypoint(tokens: string[]): WaypointDeclaration | null {
   };
 }
 
+function parseBezier(tokens: string[]): BezierHandleConstraint | null {
+  // bezier <targetId>, <incomingLength> [, <outgoingLength>]
+  // tokens[0] === 'bezier'
+  if (tokens.length < 2) return null;
+
+  // Rejoin everything after 'bezier' and split on commas.
+  const rest = tokens.slice(1).join(' ');
+  const parts = rest.split(',').map((p) => p.trim()).filter(Boolean);
+
+  if (parts.length < 2 || parts.length > 3) return null;
+
+  const targetId = parts[0];
+  const isSegment = splitEdgeId(targetId) !== null;
+
+  // Segment form only accepts one length argument.
+  if (isSegment && parts.length === 3) return null;
+
+  // targetId must either be a valid edge segment or a valid node/waypoint ID.
+  if (!isSegment && !NODE_ID_RE.test(targetId)) return null;
+
+  const len1Str = parts[1];
+  if (!NUMBER_RE.test(len1Str)) return null;
+  const incomingLength = parseInt(len1Str, 10);
+
+  let outgoingLength: number | undefined;
+  if (parts.length === 3) {
+    const len2Str = parts[2];
+    if (!NUMBER_RE.test(len2Str)) return null;
+    outgoingLength = parseInt(len2Str, 10);
+  }
+
+  const id = makeId(`bezier:${targetId}:${incomingLength}:${outgoingLength ?? ''}`);
+
+  const result: BezierHandleConstraint = { type: 'bezier', id, targetId, incomingLength };
+  if (outgoingLength !== undefined) result.outgoingLength = outgoingLength;
+  return result;
+}
+
 // ── Main line dispatcher ──────────────────────────────────────────────────────
 
 function parseLine(
@@ -255,6 +294,7 @@ function parseLine(
   if (keyword === 'group') return parseGroup(tokens);
   if (keyword === 'anchor') return parseAnchor(tokens);
   if (keyword === 'waypoint') return parseWaypoint(tokens);
+  if (keyword === 'bezier') return parseBezier(tokens);
 
   // Directional: first token is a node ID (real node or previously declared waypoint)
   if (NODE_ID_RE.test(keyword)) {
@@ -289,9 +329,16 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
   const constraints: Constraint[] = [];
   const warnings: string[] = [];
   const knownWaypointIds = new Set<string>();
+  let debug = false;
 
   for (const line of lines) {
     if (line.trim() === '') continue;
+
+    // `debug` is a standalone directive, not a constraint.
+    if (line.trim() === 'debug') {
+      debug = true;
+      continue;
+    }
 
     const constraint = parseLine(line, knownWaypointIds);
 
@@ -307,5 +354,5 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
     constraints.push(constraint);
   }
 
-  return { version: 1, constraints, warnings };
+  return { version: 1, constraints, warnings, ...(debug ? { debug: true } : {}) };
 }
