@@ -9,9 +9,12 @@ import {
   applyPositionsToSVG,
   applyConstraintsToNodes,
   reRouteEdgesInSVG,
+  routeEdgeThroughWaypoints,
+  buildSplinePath,
+  buildWaypointNodes,
   setDiagramText,
 } from './index.js';
-import type { LayoutNode } from '../types.js';
+import type { LayoutNode, WaypointDeclaration } from '../types.js';
 
 // ── parseTranslate ────────────────────────────────────────────────────────────
 
@@ -386,6 +389,49 @@ describe('reRouteEdgesInSVG', () => {
     expect(nearBBorder).toBe(true);
   });
 
+  it('preserves a cubic-bezier curve shape rather than replacing with a straight line', () => {
+    const diagramId = 'curve-test';
+    // Nodes laid out horizontally; edge has a bezier arc looping below them.
+    const svgEl = makeEdgeSvg(
+      [
+        { id: 'A', transform: 'translate(100, 40)' },
+        { id: 'B', transform: 'translate(300, 40)' },
+      ],
+      [{ id: `${diagramId}-L_A_B_0`, d: 'M140,40 C140,120 260,120 260,40' }],
+    );
+
+    const originalNodes: LayoutNode[] = [
+      { id: 'A', x: 100, y: 40, width: 80, height: 40 },
+      { id: 'B', x: 300, y: 40, width: 80, height: 40 },
+    ];
+    // A moves right 50px; B is unchanged.
+    const solvedNodes: LayoutNode[] = [
+      { id: 'A', x: 150, y: 40, width: 80, height: 40 },
+      { id: 'B', x: 300, y: 40, width: 80, height: 40 },
+    ];
+
+    reRouteEdgesInSVG(svgEl, originalNodes, solvedNodes, [{ id: 'L_A_B_0', start: 'A', end: 'B' }], diagramId);
+
+    const d = svgEl.querySelector(`[id="${diagramId}-L_A_B_0"]`)?.getAttribute('d') ?? '';
+
+    // The path must still be a cubic bezier (contains a C command), not a straight line.
+    expect(d).toMatch(/[Cc]/);
+
+    // The new start point must lie on A's border (translated path starts at new exit point).
+    const startMatch = /^M([-\d.]+),([-\d.]+)/.exec(d);
+    expect(startMatch).not.toBeNull();
+    if (startMatch) {
+      const sx = parseFloat(startMatch[1]);
+      const sy = parseFloat(startMatch[2]);
+      const A = solvedNodes[0];
+      // Start must be within A's bounding box borders.
+      expect(sx).toBeGreaterThanOrEqual(A.x - A.width / 2 - 0.5);
+      expect(sx).toBeLessThanOrEqual(A.x + A.width / 2 + 0.5);
+      expect(sy).toBeGreaterThanOrEqual(A.y - A.height / 2 - 0.5);
+      expect(sy).toBeLessThanOrEqual(A.y + A.height / 2 + 0.5);
+    }
+  });
+
   it('leaves path unchanged when no nodes moved', () => {
     const diagramId = 'noop-diagram';
     const originalD = 'M 100,40 L 100,160';
@@ -466,5 +512,220 @@ describe('constraintLayouts loader', () => {
     const entry = constraintLayouts.find(l => l.name === 'constrained-dagre')!;
     const algorithm = await entry.loader();
     expect(typeof algorithm.render).toBe('function');
+  });
+});
+
+// ── buildSplinePath ───────────────────────────────────────────────────────────
+
+describe('buildSplinePath', () => {
+  it('returns empty string for no points', () => {
+    expect(buildSplinePath([])).toBe('');
+  });
+
+  it('returns a move-only path for a single point', () => {
+    expect(buildSplinePath([{ x: 10, y: 20 }])).toBe('M10,20');
+  });
+
+  it('returns M…L for exactly two points', () => {
+    const d = buildSplinePath([{ x: 0, y: 0 }, { x: 100, y: 100 }]);
+    expect(d).toBe('M0,0L100,100');
+  });
+
+  it('returns M…C…C… (cubic bezier) for three or more points', () => {
+    const d = buildSplinePath([
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 200, y: 0 },
+    ]);
+    expect(d).toMatch(/^M/);
+    expect(d).toMatch(/C/); // contains at least one cubic bezier command
+  });
+
+  it('path starts at the first point', () => {
+    const d = buildSplinePath([{ x: 50, y: 75 }, { x: 150, y: 75 }, { x: 250, y: 75 }]);
+    expect(d).toMatch(/^M50,75/);
+  });
+
+  it('catmull-rom passes through the interior point (3-point case)', () => {
+    // Three collinear points: the spline should be a nearly-straight line
+    // with the middle point as the endpoint of the first bezier segment.
+    const p0 = { x: 0, y: 0 };
+    const p1 = { x: 100, y: 0 };
+    const p2 = { x: 200, y: 0 };
+    const d = buildSplinePath([p0, p1, p2]);
+    // The first C command endpoint is (100, 0) — the middle point.
+    const m = /C[\d.,]+(100),(0)/.exec(d.replace(/\s/g, ''));
+    expect(m).not.toBeNull();
+  });
+});
+
+// ── routeEdgeThroughWaypoints ─────────────────────────────────────────────────
+
+function makeWaypointSvg(
+  nodes: Array<{ id: string; transform: string }>,
+  path: { id: string; d: string },
+  label?: { dataId: string; transform: string },
+): Element {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const { id, transform } of nodes) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('id', id);
+    g.setAttribute('transform', transform);
+    svg.appendChild(g);
+  }
+  const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  pathEl.setAttribute('id', path.id);
+  pathEl.setAttribute('d', path.d);
+  svg.appendChild(pathEl);
+  if (label) {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('data-id', label.dataId);
+    g.setAttribute('transform', label.transform);
+    svg.appendChild(g);
+  }
+  return svg;
+}
+
+describe('routeEdgeThroughWaypoints', () => {
+  it('with one waypoint: path passes through the waypoint position', () => {
+    const src: LayoutNode = { id: 'A', x: 100, y: 100, width: 80, height: 40 };
+    const tgt: LayoutNode = { id: 'B', x: 400, y: 100, width: 80, height: 40 };
+    const waypoint = { x: 250, y: 200 }; // waypoint below the midline
+
+    const svgEl = makeWaypointSvg(
+      [{ id: 'A', transform: 'translate(100,100)' }, { id: 'B', transform: 'translate(400,100)' }],
+      { id: 'test-L_A_B_0', d: 'M140,100L360,100' },
+    );
+    const pathEl = svgEl.querySelector('[id="test-L_A_B_0"]')!;
+
+    routeEdgeThroughWaypoints(svgEl, pathEl, 'L_A_B_0', [waypoint], src, tgt);
+
+    const d = pathEl.getAttribute('d') ?? '';
+    // The path must contain cubic bezier commands (catmull-rom → bezier).
+    expect(d).toMatch(/C/);
+    // The waypoint (250, 200) is an interior endpoint of the catmull-rom spline
+    // and must appear as the endpoint of the first bezier segment.
+    expect(d).toMatch(/250/);
+    expect(d).toMatch(/200/);
+  });
+
+  it('with two waypoints: path passes through both in order', () => {
+    const src: LayoutNode = { id: 'A', x: 50, y: 100, width: 60, height: 40 };
+    const tgt: LayoutNode = { id: 'B', x: 350, y: 100, width: 60, height: 40 };
+    const wp1 = { x: 150, y: 200 };
+    const wp2 = { x: 250, y: 200 };
+
+    const svgEl = makeWaypointSvg(
+      [],
+      { id: 'diag-L_A_B_0', d: 'M80,100L320,100' },
+    );
+    const pathEl = svgEl.querySelector('[id="diag-L_A_B_0"]')!;
+
+    routeEdgeThroughWaypoints(svgEl, pathEl, 'L_A_B_0', [wp1, wp2], src, tgt);
+
+    const d = pathEl.getAttribute('d') ?? '';
+    // Both waypoint x-coordinates must appear in the path.
+    expect(d).toMatch(/150/);
+    expect(d).toMatch(/250/);
+    // Two C commands for the three segments (exit→wp1, wp1→wp2, wp2→entry).
+    const cCount = (d.match(/C/g) ?? []).length;
+    expect(cCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('with no waypoints: produces a straight line between border points', () => {
+    const src: LayoutNode = { id: 'A', x: 100, y: 40, width: 80, height: 40 };
+    const tgt: LayoutNode = { id: 'B', x: 100, y: 200, width: 80, height: 40 };
+
+    const svgEl = makeWaypointSvg([], { id: 'diag-L_A_B_0', d: 'M100,60L100,180' });
+    const pathEl = svgEl.querySelector('[id="diag-L_A_B_0"]')!;
+
+    routeEdgeThroughWaypoints(svgEl, pathEl, 'L_A_B_0', [], src, tgt);
+
+    const d = pathEl.getAttribute('d') ?? '';
+    // No waypoints → 2 points → straight line (M…L).
+    expect(d).toMatch(/^M/);
+    expect(d).toMatch(/L/);
+    expect(d).not.toMatch(/C/);
+  });
+
+  it('repositions the edge label to the midpoint', () => {
+    const src: LayoutNode = { id: 'A', x: 100, y: 40, width: 80, height: 40 };
+    const tgt: LayoutNode = { id: 'B', x: 300, y: 40, width: 80, height: 40 };
+
+    const svgEl = makeWaypointSvg(
+      [],
+      { id: 'diag-L_A_B_0', d: 'M140,40L260,40' },
+      { dataId: 'L_A_B_0', transform: 'translate(200,40)' },
+    );
+    const pathEl = svgEl.querySelector('[id="diag-L_A_B_0"]')!;
+
+    routeEdgeThroughWaypoints(svgEl, pathEl, 'L_A_B_0', [], src, tgt);
+
+    // Label should be repositioned.
+    const labelTransform = svgEl.querySelector('[data-id="L_A_B_0"]')?.getAttribute('transform') ?? '';
+    expect(labelTransform).toMatch(/translate/);
+  });
+});
+
+// ── buildWaypointNodes ────────────────────────────────────────────────────────
+
+describe('buildWaypointNodes', () => {
+  it('creates a zero-size node for a valid waypoint declaration', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    // Add a path for the A-->B edge with midpoint at (200, 100)
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('id', 'diag-L_A_B_0');
+    path.setAttribute('d', 'M100,100L300,100');
+    svgEl.appendChild(path);
+
+    const decl: WaypointDeclaration = {
+      type: 'waypoint',
+      id: 'wp:A-->B:wp1',
+      edgeId: 'A-->B',
+      waypointId: 'wp1',
+    };
+    const edges = [{ id: 'L_A_B_0', start: 'A', end: 'B' }];
+    const existingNodes: LayoutNode[] = [
+      { id: 'A', x: 100, y: 100, width: 80, height: 40 },
+      { id: 'B', x: 300, y: 100, width: 80, height: 40 },
+    ];
+
+    const result = buildWaypointNodes([decl], edges, svgEl, 'diag', existingNodes);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('wp1');
+    expect(result[0].width).toBe(0);
+    expect(result[0].height).toBe(0);
+    expect(result[0].isWaypoint).toBe(true);
+    // Initial position is the midpoint of the path M100,100L300,100 → (200, 100)
+    expect(result[0].x).toBeCloseTo(200, 0);
+    expect(result[0].y).toBeCloseTo(100, 0);
+  });
+
+  it('falls back to node-center midpoint when edge path is not found', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    const decl: WaypointDeclaration = {
+      type: 'waypoint',
+      id: 'wp:A-->B:wp1',
+      edgeId: 'A-->B',
+      waypointId: 'wp1',
+    };
+    const existingNodes: LayoutNode[] = [
+      { id: 'A', x: 100, y: 100, width: 80, height: 40 },
+      { id: 'B', x: 300, y: 200, width: 80, height: 40 },
+    ];
+
+    const result = buildWaypointNodes([decl], [], svgEl, 'diag', existingNodes);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].x).toBeCloseTo(200, 0); // (100+300)/2
+    expect(result[0].y).toBeCloseTo(150, 0); // (100+200)/2
+  });
+
+  it('returns empty array when no waypoint declarations given', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const result = buildWaypointNodes([], [], svgEl, 'diag', []);
+    expect(result).toHaveLength(0);
   });
 });

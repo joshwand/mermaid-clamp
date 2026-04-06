@@ -17,6 +17,9 @@ const BLOCK_END = '%% @end-layout-constraints';
 const LINE_PREFIX = '%% ';
 
 const DIRECTIONS = new Set<string>(['north-of', 'south-of', 'east-of', 'west-of']);
+
+/** Default edge-to-edge gap when no distance is specified in a directional constraint. */
+const DEFAULT_DIRECTIONAL_DISTANCE = 20;
 const ARROWS = ['-->',  '-.->',  '===>', '==>', '---', '--'];
 // Sorted longest-first so greedy match works correctly.
 const ARROWS_SORTED = ARROWS.slice().sort((a, b) => b.length - a.length);
@@ -94,7 +97,7 @@ function parseDirectional(tokens: string[]): DirectionalConstraint | null {
   if (!DIRECTIONS.has(direction)) return null;
   if (!NODE_ID_RE.test(nodeBRaw)) return null;
 
-  let distance = 0;
+  let distance = DEFAULT_DIRECTIONAL_DISTANCE;
   if (tokens.length >= 4) {
     const distanceStr = tokens[3];
     if (!NUMBER_RE.test(distanceStr)) return null;
@@ -202,7 +205,7 @@ function parseAnchor(tokens: string[]): AnchorConstraint | null {
  * Split an edge ID string like "A-->B" into { source, arrow, target }.
  * Returns null if the string doesn't match any known arrow style.
  */
-function splitEdgeId(edgeId: string): { source: string; arrow: string; target: string } | null {
+export function splitEdgeId(edgeId: string): { source: string; arrow: string; target: string } | null {
   for (const arrow of ARROWS_SORTED) {
     const idx = edgeId.indexOf(arrow);
     if (idx === -1) continue;

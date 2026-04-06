@@ -12,57 +12,57 @@ const DEFAULT_CONSTRAINTS = `%% @layout-constraints v1
 
 const scenarios = [
   {
-    file: 'demos/task-05-01-default-side-by-side.png',
+    file: 'demos/task-05/task-05-01-default-side-by-side.png',
     constraints: DEFAULT_CONSTRAINTS,
     screenshot: 'viewport',
   },
   {
-    file: 'demos/task-05-02-default-after.png',
+    file: 'demos/task-05/task-05-02-default-after.png',
     constraints: DEFAULT_CONSTRAINTS,
     screenshot: '#after',
   },
   {
-    file: 'demos/task-05-03-default-before.png',
+    file: 'demos/task-05/task-05-03-default-before.png',
     constraints: DEFAULT_CONSTRAINTS,
     screenshot: '#before',
   },
   {
-    file: 'demos/task-05-04-align-h-first-is-anchor.png',
+    file: 'demos/task-05/task-05-04-align-h-first-is-anchor.png',
     constraints: `%% @layout-constraints v1
 %% align B, D, h
 %% @end-layout-constraints`,
     screenshot: '#after',
   },
   {
-    file: 'demos/task-05-05-align-h-second-follows.png',
+    file: 'demos/task-05/task-05-05-align-h-second-follows.png',
     constraints: `%% @layout-constraints v1
 %% align G, H, h
 %% @end-layout-constraints`,
     screenshot: '#after',
   },
   {
-    file: 'demos/task-05-06-align-v.png',
+    file: 'demos/task-05/task-05-06-align-v.png',
     constraints: `%% @layout-constraints v1
 %% align B, C, v
 %% @end-layout-constraints`,
     screenshot: '#after',
   },
   {
-    file: 'demos/task-05-07-east-of.png',
+    file: 'demos/task-05/task-05-07-east-of.png',
     constraints: `%% @layout-constraints v1
 %% D east-of C, 50
 %% @end-layout-constraints`,
     screenshot: '#after',
   },
   {
-    file: 'demos/task-05-08-south-of.png',
+    file: 'demos/task-05/task-05-08-south-of.png',
     constraints: `%% @layout-constraints v1
 %% E south-of C, 20
 %% @end-layout-constraints`,
     screenshot: '#after',
   },
   {
-    file: 'demos/task-05-09-overlap-repulsion.png',
+    file: 'demos/task-05/task-05-09-overlap-repulsion.png',
     constraints: `%% @layout-constraints v1
 %% align B, D, h
 %% align G, H, h
@@ -70,7 +70,7 @@ const scenarios = [
     screenshot: '#after',
   },
   {
-    file: 'demos/task-05-10-warnings.png',
+    file: 'demos/task-05/task-05-10-warnings.png',
     constraints: `%% @layout-constraints v1
 %% align B, C, v
 %% this is not a valid constraint
@@ -79,7 +79,7 @@ const scenarios = [
     screenshot: 'viewport',
   },
   {
-    file: 'demos/task-05-11-live-editor.png',
+    file: 'demos/task-05/task-05-11-live-editor.png',
     constraints: DEFAULT_CONSTRAINTS,
     screenshot: 'fullpage',
   },

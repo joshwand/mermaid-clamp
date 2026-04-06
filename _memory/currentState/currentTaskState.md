@@ -1,36 +1,53 @@
 # Current Task State
 
-## Current Task: Bugs — BUG-1, BUG-2, BUG-3 (see theBacklog.md)
+## Current Task: Task 6 — Edge Router (COMPLETE, awaiting human review)
 
-## Workflow State: READY — no task in flight, awaiting next assignment
+## Workflow State: AWAITING HUMAN REVIEW
 
 ## Yak-Shaving Stack: (empty)
 
 ## Scratchpad
 
-### Tasks 1–5 status
-All complete and committed. 103 tests passing. `demos/task-05.md` rebuilt with 11 scenarios, each including diagram source, constraint source, and screenshot.
+### Tasks 1–6 status
+All complete and committed. 122 tests passing.
 
-### Known bugs recorded (added to top of backlog)
+### Task 6 implementation summary
 
-| Bug | Description | Root cause |
-|-----|-------------|------------|
-| BUG-1 | Curved arrows replaced with straight lines | `reRouteEdgesInSVG` writes `M...L...` for all moved edges, discarding original path shape |
-| BUG-2 | Directional constraints lack default offset | Distance defaults to 0 → nodes touch, almost always causing overlap |
-| BUG-3 | DIR-of does not drag descendants | Solver moves only the named node; downstream nodes (constrained relative to it) may not converge in the same pass → end up wrong side |
+**Goal:** Route edges through constraint-positioned waypoint shadow nodes.
 
-### Implementation notes for bugs
+**Syntax (already in parser/types):**
+```
+waypoint A-->B as wp1
+wp1 south-of B, 60
+```
 
-**BUG-1 approach:** Parse the original `d` attribute path. Compute delta between old and new border attachment points. Translate path by that delta. Fall back to straight line only if path is unparseable.
+**New functions in `src/layout/index.ts`:**
+- `buildSplinePath(points)` — catmull-rom to cubic bezier for SVG path construction
+- `routeEdgeThroughWaypoints(svgEl, pathEl, edgeId, positions, src, tgt)` — routes one edge
+- `routeEdgesWithWaypoints(svgEl, solved, decls, edges, diagramId)` — routes all edges with waypoints
+- `buildWaypointNodes(decls, edges, svgEl, diagramId, nodes)` — injects zero-size LayoutNodes at edge midpoints
 
-**BUG-2 approach:** Change default distance from `0` to `20` in parser (or apply a layout-level default in the solver when distance is 0). Need to decide: is it a parser default or a solver default? Parser is cleaner — the meaning of "no distance" is defined at parse time.
+**Export added to `src/parser/index.ts`:**
+- `splitEdgeId(edgeId)` — exported so layout can parse "A-->B" without duplicating logic
 
-**BUG-3 approach:** Topological sort the directional constraints before relaxation. Process in dependency order so D sees its final position before H is placed relative to it. Alternatively, increase max iterations — but topological sort is O(n) and correct.
+**Updated `constrainedDagreAlgorithm.render()` pipeline:**
+1. dagre layout
+2. Extract positions
+3b. Inject waypoint nodes at edge midpoints
+4. Solve constraints (waypoints participate as zero-size nodes)
+5. Apply positions to SVG
+6. Re-route moved edges (reRouteEdgesInSVG — handles non-waypoint edges)
+7. Route waypoint edges (routeEdgesWithWaypoints — overwrites step 6 for waypoint edges)
+
+**Tests added:** 13 new tests (total 122). Covers buildSplinePath, routeEdgeThroughWaypoints, buildWaypointNodes.
+
+**Demo:** `demos/task-06.md` with 3 screenshots showing baseline vs waypoint-routed edges.
 
 ## Action Log
 
-- Session: rebuilt task-05.md with diagram + constraint source per scenario
-- Session: updated theTechContext.md with demo rules (include source per scenario)
-- Session: updated ConstraintLanguageSpec.md + ConstraintSolver.md (NO OVERLAPS, edge-to-edge, first-is-anchor)
-- Session: committed and pushed all above
-- Session: added BUG-1, BUG-2, BUG-3 to top of theBacklog.md
+- Session: fixed BUG-1 with 2D similarity transform (reanchorPath)
+- Session: fixed BUG-2 (default distance 20px)
+- Session: fixed BUG-3 (topological sort for constraint cascade)
+- Session: reorganized demos/ screenshots into task-05/, bugs/, task-06/ subdirs
+- Session: implemented Task 6 edge router (buildSplinePath + routeEdgeThroughWaypoints + buildWaypointNodes)
+- Session: committed and pushed all above to claude/fix-backlog-bugs-UZt5W

@@ -246,6 +246,64 @@ describe('solveConstraints — conflict resolution', () => {
   });
 });
 
+// ── Cascade / topological ordering ───────────────────────────────────────────
+
+describe('solveConstraints — cascade ordering', () => {
+  it('H south-of D converges when listed before D south-of C', () => {
+    const nodes = [node('C', 100, 100), node('D', 100, 100), node('H', 100, 100)];
+    // Worst-case order: H references D before D has been moved
+    const result = solveConstraints(nodes, cs(
+      { type: 'directional', id: 'h-d', nodeA: 'H', direction: 'south-of', nodeB: 'D', distance: 20 },
+      { type: 'directional', id: 'd-c', nodeA: 'D', direction: 'south-of', nodeB: 'C', distance: 50 },
+    ));
+
+    const C = byId(result, 'C');
+    const D = byId(result, 'D');
+    const H = byId(result, 'H');
+
+    // D south-of C: D.y = C.y + (40+40)/2 + 50 = 190
+    expect(D.y).toBeCloseTo(C.y + 40 + 50, 0);
+    // H south-of D (new position): H.y = D.y + (40+40)/2 + 20 = 250
+    expect(H.y).toBeCloseTo(D.y + 40 + 20, 0);
+    // H must be strictly below D
+    expect(H.y).toBeGreaterThan(D.y);
+  });
+
+  it('chain of 12 nodes in forward order converges correctly', () => {
+    // Forward order (N0 depends on N1, N1 on N2, …) is the worst case for
+    // iterative relaxation without topological sorting: a chain of depth 12
+    // requires 12 passes — more than MAX_ITERATIONS=10. With topo sort a single
+    // pass suffices.
+    const N = 12;
+    const gap = 10;
+    const nodeH = 40;
+    const expectedStep = nodeH + gap; // (h+h)/2 + gap = 40 + 10 = 50... actually (40+40)/2+10 = 50
+    const nodesList = Array.from({ length: N }, (_, i) => node(`N${i}`, 100, 100));
+
+    // Forward order: N0 south-of N1, N1 south-of N2, …, N10 south-of N11
+    const constraints: ConstraintSet['constraints'] = Array.from({ length: N - 1 }, (_, i) => ({
+      type: 'directional' as const,
+      id: `d${i}`,
+      nodeA: `N${i}`,
+      direction: 'south-of' as const,
+      nodeB: `N${i + 1}`,
+      distance: gap,
+    }));
+
+    const result = solveConstraints(nodesList, { version: 1, constraints });
+
+    // Leaf node never moves
+    expect(byId(result, `N${N - 1}`).y).toBe(100);
+
+    // Every node must sit exactly one step below its reference
+    for (let i = 0; i < N - 1; i++) {
+      const a = byId(result, `N${i}`);
+      const b = byId(result, `N${i + 1}`);
+      expect(a.y).toBeCloseTo(b.y + expectedStep, 0);
+    }
+  });
+});
+
 // ── Performance ───────────────────────────────────────────────────────────────
 
 describe('solveConstraints — performance', () => {
