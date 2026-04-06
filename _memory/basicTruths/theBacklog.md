@@ -4,63 +4,17 @@ Tasks are ordered for sequential implementation. Each task produces a working (i
 
 ---
 
-## Bugs (fix before continuing)
+## ✅ Completed
 
-### BUG-1: Curved arrows replaced with straight lines
-
-**Symptom:** After constraint solving, all edge paths are replaced with straight `M...L...` lines, discarding mermaid's original curved/orthogonal routing.
-
-**Root cause:** `reRouteEdgesInSVG` in `src/layout/index.ts` currently writes `M<borderPoint>L<borderPoint>` for every moved edge. This throws away the original path shape.
-
-**Expected behaviour:** Only the start/end attachment points should change. The intermediate curve (arcs, cubic beziers, orthogonal bends) should be preserved and re-anchored to the new border intersection points. Approach: translate the existing path by the delta of the new vs old attachment points; only fall back to straight-line if the path is unparseable.
-
-**Acceptance:** Edges look curved after constraint solving, matching mermaid's default style.
-
----
-
-### BUG-2: Directional constraints lack a default offset
-
-**Symptom:** `D east-of C` (no distance specified) places D touching C (0px gap), which is almost never the desired result and typically causes overlap.
-
-**Expected behaviour:** When no distance is given, apply a sensible default gap (e.g. 20px edge-to-edge). The user can override with an explicit value.
-
-**Acceptance:** `D east-of C` with no distance produces a visible gap; `D east-of C, 0` still means touching.
-
----
-
-### BUG-3: Directional constraints do not drag descendants
-
-**Symptom:** `D east-of C, 50` moves D but does not move any nodes that are south-of/aligned-with D. Those nodes can end up on the wrong side of D (e.g. visually above D when they should be below it), or overlapping.
-
-**Root cause:** The solver applies `east-of` to D's position alone. Nodes constrained relative to D are updated in the same relaxation iteration and may not see D's new position until the next iteration — or may never converge if the dependency chain is deeper than the iteration count allows.
-
-**Expected behaviour:** When a node is moved by a directional constraint, all nodes that have directional or alignment constraints relative to it should be updated in the same pass (cascade). The repulsion pass should only be a last resort for genuinely unconstrained overlaps, not a substitute for correct cascade ordering.
-
-**Acceptance:** `D east-of C, 50` + `H south-of D, 20` → H is always below D's new position, never above or overlapping.
-
----
-
-## Task 6: Edge Router
-
-**Goal:** Route edges through resolved waypoint positions.
-
-**Work:**
-- After solver resolves waypoint positions, re-interpolate edge paths
-- For edges with waypoints: source → wp1 → wp2 → ... → target
-- Path segments: orthogonal routing (match mermaid's default style) or spline depending on diagram config
-- Edges without waypoints: unchanged from base layout
-- Handle edge labels (reposition to new midpoint)
-
-**Tests:**
-- Edge with one waypoint: path goes through waypoint position
-- Edge with two waypoints: correct ordering
-- Waypoint constrained `west-of C` → edge visually passes left of C
-- No waypoints → edge unchanged
-- Edge label repositioned correctly
-
-**Verification:** Showboat doc with Rodney screenshots showing edge routing before/after waypoints.
-
-**Depends on:** Tasks 4, 5
+- **BUG-1** — Curved arrows restored via 2D similarity transform in `reanchorPath()` (src/layout/index.ts)
+- **BUG-2** — Default offset of 20px applied when no distance specified
+- **BUG-3** — Topological sort ensures constraint cascade to descendants
+- **Task 1** — Project scaffold + types
+- **Task 2** — Constraint parser
+- **Task 3** — Constraint serializer
+- **Task 4** — Constraint solver
+- **Task 5** — Layout engine integration (constrained-dagre)
+- **Task 6** — Edge router (catmull-rom waypoint splines)
 
 ---
 
@@ -252,20 +206,11 @@ Tasks are ordered for sequential implementation. Each task produces a working (i
 
 ## Open Questions
 
-### OQ-1: Accessing diagram text from within the layout engine
-Layout callback gets `LayoutData` + config but may not have raw text. Need to spike on this during Task 5. Likely solution: module-scoped side-channel.
+### OQ-1: Accessing diagram text ✅ Resolved (Task 5)
+Used a module-scoped side-channel: diagram text is passed into `constrainedDagreAlgorithm.render()` via the `LayoutData` extra field.
 
-### OQ-2: Constraint compatibility matrix
-Formalize which constraints can coexist. Draft:
-- ✅ `align h` + `align v` (different axes)
-- ✅ `align h` + `east-of` (different dimensions — one constrains Y, other constrains X)
-- ❌ `align h(A,B)` + `A south-of B` (both constrain Y — directional offset wins)
-- ✅ `group` + `align` (group moves as unit, then aligns)
-- ❌ `anchor` + anything on anchored axis (anchor wins)
-- ✅ Multiple groups (node can be in nested groups)
-- ✅ Waypoint constraints follow same rules as node constraints
-
-Resolve before Task 4.
+### OQ-2: Constraint compatibility matrix ✅ Resolved (Task 4)
+Implemented priority ordering: `anchor` > directional > align. Same-axis conflicts: last-write wins within each priority tier.
 
 ### OQ-3: ELK variant
-Same solver wrapping ELK. Deferred to Phase 2. ELK is async (WASM) and produces different base positions — need to verify solver convergence.
+Deferred to Phase 2. ELK is async (WASM) and produces different base positions — need to verify solver convergence.
