@@ -2,7 +2,7 @@
 
 ## Focus: Phase 1 Implementation
 
-**Status:** Task 1 complete. Ready for Task 2 (Constraint Parser).
+**Status:** Tasks 1–6 + all bugs complete. Ready for Task 7 (State Manager).
 
 ## Key Decisions Made
 
@@ -14,28 +14,34 @@
 
 4. **Waypoints as shadow nodes.** Edge routing constraints are expressed by creating waypoints (zero-size shadow nodes) that participate in the full constraint system. No separate edge constraint grammar needed.
 
-5. **Iterative relaxation solver.** Priority-ordered, deterministic, fast enough for interactive use. Not LP or force-directed.
+5. **Iterative relaxation solver with topological cascade.** Priority-ordered, deterministic, fast enough for interactive use. Topological sort ensures constraint cascade to descendants in correct order.
 
 6. **Hybrid re-render.** In-place SVG transforms during drag (60fps), full `mermaid.render()` on constraint commit (correctness).
 
 7. **Showboat + Rodney verification.** Agent builds a demo document at each milestone; human reviews before next task.
 
-8. **Vite `output.exports: "named"`** in rollupOptions — suppresses "named+default exports together" warning, required because `src/index.ts` uses both `export default` and named re-exports.
+8. **Vite `output.exports: "named"`** in rollupOptions — suppresses "named+default exports together" warning.
+
+9. **2D similarity transform for edge re-anchoring.** `reanchorPath()` applies scale + rotation + translation to all bezier control points when edge endpoints move, preserving the curve shape exactly.
+
+10. **Catmull-rom splines for waypoint edges.** `buildSplinePath()` converts catmull-rom (tension=1/3) to cubic bezier segments for SVG. Tension=1/3 produces longer handles and smoother curves than the default 1/6.
+
+11. **"First-is-anchor" rule for align constraints.** `align A, B, h` moves B to match A's Y. The first node is the anchor; the second is moved. Waypoint align constraints must list the real node first.
 
 ## Task Status
 
 | Task | Status |
 |------|--------|
-| BUG-1 — Restore curved arrows | 🐛 Backlog (fix before continuing) |
-| BUG-2 — Default offset for DIR-of | 🐛 Backlog (fix before continuing) |
-| BUG-3 — DIR-of cascade to descendants | 🐛 Backlog (fix before continuing) |
+| BUG-1 — Restore curved arrows | ✅ Complete |
+| BUG-2 — Default offset for DIR-of | ✅ Complete |
+| BUG-3 — DIR-of cascade to descendants | ✅ Complete |
 | 1 — Project Scaffold + Types | ✅ Complete |
 | 2 — Constraint Parser | ✅ Complete |
 | 3 — Constraint Serializer | ✅ Complete |
 | 4 — Constraint Solver | ✅ Complete |
 | 5 — Layout Engine Integration | ✅ Complete |
-| 6 — Edge Router | ⬜ |
-| 7 — State Manager | ⬜ |
+| 6 — Edge Router | ✅ Complete |
+| 7 — State Manager | ⬜ Next |
 | 8 — Constraint Inference Engine | ⬜ |
 | 9 — Editor Overlay Basic Drag | ⬜ |
 | 10 — Affordance Rendering | ⬜ |
@@ -46,7 +52,12 @@
 
 ## Next Steps
 
-Fix BUG-1, BUG-2, BUG-3 (see theBacklog.md) before continuing to Task 6.
+Implement Task 7: State Manager (`src/state/StateManager.ts`).
+- `StateManager` class with snapshot-based undo/redo
+- `applyConstraint(c)`, `removeConstraint(id)`, `undo()`, `redo()`
+- Pub/sub: `subscribe(listener)` → unsubscribe function
+- Max undo depth: 50 (configurable)
+- Redo stack clears on new mutation
 
 ## Active Risks
 
@@ -54,6 +65,4 @@ Fix BUG-1, BUG-2, BUG-3 (see theBacklog.md) before continuing to Task 6.
 
 2. **SVG node identification:** Varies by diagram type and mermaid version. Build robust node-finder with fallback strategies.
 
-3. **Accessing diagram text from layout callback:** May need module-scoped side-channel. Spike during Task 5.
-
-4. **Solver convergence:** Adversarial constraints could loop. Iteration cap + warning.
+3. **Solver convergence:** Adversarial constraints could loop. Iteration cap + warning in place.

@@ -1,53 +1,50 @@
 # Current Task State
 
-## Current Task: Task 6 — Edge Router (COMPLETE, awaiting human review)
+## Current Task: Task 7 — State Manager
 
-## Workflow State: AWAITING HUMAN REVIEW
+## Workflow State: READY TO START
 
 ## Yak-Shaving Stack: (empty)
 
 ## Scratchpad
 
-### Tasks 1–6 status
-All complete and committed. 122 tests passing.
+### Tasks 1–6 + Bugs: all complete
+122 tests passing. Branch: `claude/fix-backlog-bugs-UZt5W`.
 
-### Task 6 implementation summary
+### Task 7 spec (from theBacklog.md)
 
-**Goal:** Route edges through constraint-positioned waypoint shadow nodes.
+**File:** `src/state/StateManager.ts`
 
-**Syntax (already in parser/types):**
-```
-waypoint A-->B as wp1
-wp1 south-of B, 60
-```
+**Goal:** In-memory state management with undo/redo.
 
-**New functions in `src/layout/index.ts`:**
-- `buildSplinePath(points)` — catmull-rom to cubic bezier for SVG path construction
-- `routeEdgeThroughWaypoints(svgEl, pathEl, edgeId, positions, src, tgt)` — routes one edge
-- `routeEdgesWithWaypoints(svgEl, solved, decls, edges, diagramId)` — routes all edges with waypoints
-- `buildWaypointNodes(decls, edges, svgEl, diagramId, nodes)` — injects zero-size LayoutNodes at edge midpoints
+**Work:**
+- `StateManager` class with snapshot-based undo/redo
+- `applyConstraint(c)`, `removeConstraint(id)`, `undo()`, `redo()`
+- Pub/sub: `subscribe(listener)` → unsubscribe function
+- Max undo depth: 50 (configurable)
+- Redo stack clears on new mutation
 
-**Export added to `src/parser/index.ts`:**
-- `splitEdgeId(edgeId)` — exported so layout can parse "A-->B" without duplicating logic
+**Tests:**
+- Add → undo → redo round-trip
+- Undo depth limit
+- Redo clears on mutation
+- Subscribe fires on change
+- Deep clone: returned state is independent
 
-**Updated `constrainedDagreAlgorithm.render()` pipeline:**
-1. dagre layout
-2. Extract positions
-3b. Inject waypoint nodes at edge midpoints
-4. Solve constraints (waypoints participate as zero-size nodes)
-5. Apply positions to SVG
-6. Re-route moved edges (reRouteEdgesInSVG — handles non-waypoint edges)
-7. Route waypoint edges (routeEdgesWithWaypoints — overwrites step 6 for waypoint edges)
+**Verification:** Showboat doc executing state manager operations and logging state transitions.
 
-**Tests added:** 13 new tests (total 122). Covers buildSplinePath, routeEdgeThroughWaypoints, buildWaypointNodes.
+**Depends on:** Task 1 (types already exist)
 
-**Demo:** `demos/task-06.md` with 3 screenshots showing baseline vs waypoint-routed edges.
+### Demo scripts location
+All capture scripts are in `demos/scripts/`.
+Demo docs are in `demos/task-NN.md`.
+Screenshots are in `demos/task-NN/`.
 
 ## Action Log
 
-- Session: fixed BUG-1 with 2D similarity transform (reanchorPath)
-- Session: fixed BUG-2 (default distance 20px)
-- Session: fixed BUG-3 (topological sort for constraint cascade)
-- Session: reorganized demos/ screenshots into task-05/, bugs/, task-06/ subdirs
-- Session: implemented Task 6 edge router (buildSplinePath + routeEdgeThroughWaypoints + buildWaypointNodes)
-- Session: committed and pushed all above to claude/fix-backlog-bugs-UZt5W
+- Session 1: implemented Tasks 1–5
+- Session 2: fixed BUG-1 (2D similarity transform), BUG-2 (default 20px), BUG-3 (topo sort)
+- Session 2: implemented Task 6 (waypoint edge router, catmull-rom splines, SPLINE_TENSION=1/3)
+- Session 2: reorganized demos/ into subdirectories; moved .mjs scripts to demos/scripts/
+- Session 2: expanded Task 6 demo to 8 scenarios; committed and pushed all
+- Session 2: updated memory files (theBacklog, currentEpic, currentTaskState)
