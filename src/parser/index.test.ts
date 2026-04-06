@@ -328,3 +328,32 @@ describe('parseConstraints — malformed lines', () => {
     expect(result.constraints[0].type).toBe('directional');
   });
 });
+
+// ── debug directive ───────────────────────────────────────────────────────────
+
+describe('parseConstraints — debug directive', () => {
+  it('sets debugWaypoints when debug appears alone in the block', () => {
+    const result = parseConstraints(wrap('debug'));
+    expect(result.debugWaypoints).toBe(true);
+    expect(result.constraints).toHaveLength(0);
+  });
+
+  it('sets debugWaypoints alongside constraints', () => {
+    const result = parseConstraints(wrap('debug\nA south-of B, 100\nwaypoint A-->B as wp1'));
+    expect(result.debugWaypoints).toBe(true);
+    expect(result.constraints).toHaveLength(2);
+  });
+
+  it('debugWaypoints is absent when debug is not present', () => {
+    const result = parseConstraints(wrap('A south-of B, 100'));
+    expect(result.debugWaypoints).toBeUndefined();
+  });
+
+  it('is not confused by a node ID called "debug" used in a directional constraint', () => {
+    // "debug south-of B, 50" is a valid directional constraint, not a debug directive.
+    const result = parseConstraints(wrap('debug south-of B, 50'));
+    expect(result.debugWaypoints).toBeUndefined();
+    expect(result.constraints).toHaveLength(1);
+    expect(result.constraints[0].type).toBe('directional');
+  });
+});

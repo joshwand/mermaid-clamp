@@ -683,6 +683,49 @@ function getPathMidpoint(d: string): { x: number; y: number } | null {
   return { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
 }
 
+// ── Debug waypoint markers ────────────────────────────────────────────────────
+
+const DEBUG_MARKER_SIZE = 6; // px, side length of the red debug square
+const DEBUG_MARKER_COLOR = 'red';
+const DEBUG_MARKER_GROUP_ID = 'debug-waypoint-markers';
+
+/**
+ * Inject a small red square at each waypoint's resolved position into the SVG.
+ *
+ * All markers are grouped under `<g id="debug-waypoint-markers">`. Any
+ * previously injected group is replaced, so re-renders stay clean.
+ *
+ * Activated by the `%% debug` directive inside the constraint block.
+ */
+export function renderDebugWaypoints(
+  svgEl: Element,
+  waypointNodes: LayoutNode[],
+): void {
+  // Remove any existing debug marker group from a previous render.
+  const existing = svgEl.querySelector(`#${DEBUG_MARKER_GROUP_ID}`);
+  if (existing) existing.remove();
+
+  if (waypointNodes.length === 0) return;
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const group = svgEl.ownerDocument!.createElementNS(ns, 'g');
+  group.setAttribute('id', DEBUG_MARKER_GROUP_ID);
+
+  const half = DEBUG_MARKER_SIZE / 2;
+  for (const wp of waypointNodes) {
+    const rect = svgEl.ownerDocument!.createElementNS(ns, 'rect');
+    rect.setAttribute('x', String(Math.round(wp.x - half)));
+    rect.setAttribute('y', String(Math.round(wp.y - half)));
+    rect.setAttribute('width', String(DEBUG_MARKER_SIZE));
+    rect.setAttribute('height', String(DEBUG_MARKER_SIZE));
+    rect.setAttribute('fill', DEBUG_MARKER_COLOR);
+    rect.setAttribute('data-waypoint-id', wp.id);
+    group.appendChild(rect);
+  }
+
+  svgEl.appendChild(group);
+}
+
 // ── Constraint application (testable without DOM) ─────────────────────────────
 
 /**
@@ -776,6 +819,15 @@ const constrainedDagreAlgorithm = {
 
     // Step 7: Route edges with waypoints through their resolved waypoint positions.
     routeEdgesWithWaypoints(svgEl, solved, waypointDecls, edges, diagramId);
+
+    // Step 8: Render debug waypoint markers if the debug directive is active.
+    if (cs.debugWaypoints) {
+      const solvedMap = new Map(solved.map((n) => [n.id, n]));
+      const resolvedWaypoints = waypointDecls
+        .map((d) => solvedMap.get(d.waypointId))
+        .filter((n): n is LayoutNode => n !== undefined);
+      renderDebugWaypoints(svgEl, resolvedWaypoints);
+    }
   },
 };
 

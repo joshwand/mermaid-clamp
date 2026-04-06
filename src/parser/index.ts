@@ -289,9 +289,16 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
   const constraints: Constraint[] = [];
   const warnings: string[] = [];
   const knownWaypointIds = new Set<string>();
+  let debugWaypoints = false;
 
   for (const line of lines) {
     if (line.trim() === '') continue;
+
+    // Handle the debug directive.
+    if (line.trim() === 'debug') {
+      debugWaypoints = true;
+      continue;
+    }
 
     const constraint = parseLine(line, knownWaypointIds);
 
@@ -307,5 +314,5 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
     constraints.push(constraint);
   }
 
-  return { version: 1, constraints, warnings };
+  return { version: 1, constraints, warnings, ...(debugWaypoints && { debugWaypoints }) };
 }

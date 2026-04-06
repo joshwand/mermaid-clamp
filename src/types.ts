@@ -103,6 +103,12 @@ export interface ConstraintSet {
   constraints: Constraint[];
   /** Human-readable warning messages for malformed or skipped lines. */
   warnings?: string[];
+  /**
+   * When true (set by the `debug` directive inside the constraint block),
+   * the layout engine renders a small red square at each resolved waypoint
+   * position for visual debugging.
+   */
+  debugWaypoints?: boolean;
 }
 
 // ── Layout types ─────────────────────────────────────────────────────────────

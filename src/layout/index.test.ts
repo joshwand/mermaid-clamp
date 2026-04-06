@@ -12,6 +12,7 @@ import {
   routeEdgeThroughWaypoints,
   buildSplinePath,
   buildWaypointNodes,
+  renderDebugWaypoints,
   setDiagramText,
 } from './index.js';
 import type { LayoutNode, WaypointDeclaration } from '../types.js';
@@ -729,3 +730,74 @@ describe('buildWaypointNodes', () => {
     expect(result).toHaveLength(0);
   });
 });
+
+// ── renderDebugWaypoints ──────────────────────────────────────────────────────
+
+describe('renderDebugWaypoints', () => {
+  it('injects a red rect for each waypoint', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const waypoints: LayoutNode[] = [
+      { id: 'wp1', x: 100, y: 200, width: 0, height: 0, isWaypoint: true },
+      { id: 'wp2', x: 300, y: 400, width: 0, height: 0, isWaypoint: true },
+    ];
+
+    renderDebugWaypoints(svgEl, waypoints);
+
+    const group = svgEl.querySelector('#debug-waypoint-markers');
+    expect(group).not.toBeNull();
+    const rects = group!.querySelectorAll('rect');
+    expect(rects).toHaveLength(2);
+  });
+
+  it('centers each rect on the waypoint position', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const waypoints: LayoutNode[] = [
+      { id: 'wp1', x: 100, y: 200, width: 0, height: 0, isWaypoint: true },
+    ];
+
+    renderDebugWaypoints(svgEl, waypoints);
+
+    const rect = svgEl.querySelector('#debug-waypoint-markers rect')!;
+    // 6px square centered at (100, 200) → x=97, y=197
+    expect(parseInt(rect.getAttribute('x')!)).toBe(97);
+    expect(parseInt(rect.getAttribute('y')!)).toBe(197);
+    expect(parseInt(rect.getAttribute('width')!)).toBe(6);
+    expect(parseInt(rect.getAttribute('height')!)).toBe(6);
+    expect(rect.getAttribute('fill')).toBe('red');
+  });
+
+  it('sets data-waypoint-id attribute on each rect', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const waypoints: LayoutNode[] = [
+      { id: 'wp1', x: 50, y: 50, width: 0, height: 0, isWaypoint: true },
+    ];
+
+    renderDebugWaypoints(svgEl, waypoints);
+
+    const rect = svgEl.querySelector('#debug-waypoint-markers rect')!;
+    expect(rect.getAttribute('data-waypoint-id')).toBe('wp1');
+  });
+
+  it('replaces the existing group on subsequent calls', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const wp1: LayoutNode[] = [{ id: 'a', x: 10, y: 10, width: 0, height: 0, isWaypoint: true }];
+    const wp2: LayoutNode[] = [
+      { id: 'b', x: 20, y: 20, width: 0, height: 0, isWaypoint: true },
+      { id: 'c', x: 30, y: 30, width: 0, height: 0, isWaypoint: true },
+    ];
+
+    renderDebugWaypoints(svgEl, wp1);
+    renderDebugWaypoints(svgEl, wp2);
+
+    const groups = svgEl.querySelectorAll('#debug-waypoint-markers');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].querySelectorAll('rect')).toHaveLength(2);
+  });
+
+  it('injects nothing when waypoints list is empty', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    renderDebugWaypoints(svgEl, []);
+    expect(svgEl.querySelector('#debug-waypoint-markers')).toBeNull();
+  });
+});
+
