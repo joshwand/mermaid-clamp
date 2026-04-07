@@ -148,6 +148,12 @@ export interface ConstraintSet {
    * Activated by a `%% debug` line inside the constraint block.
    */
   debug?: boolean;
+  /**
+   * When true, the layout engine renders bezier control handles for ALL edges
+   * (both constraint-routed and dagre-generated), and marks all anchor points.
+   * Activated by a `%% debug bezier` line anywhere in the mermaid source.
+   */
+  debugBezier?: boolean;
 }
 
 // ── Layout types ─────────────────────────────────────────────────────────────

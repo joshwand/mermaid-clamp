@@ -13,6 +13,8 @@ import {
   buildSplinePath,
   buildWaypointNodes,
   setDiagramText,
+  clampEndpointHandles,
+  renderDebugOverlay,
 } from './index.js';
 import type { LayoutNode, WaypointDeclaration } from '../types.js';
 
@@ -760,5 +762,128 @@ describe('buildWaypointNodes', () => {
     const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const result = buildWaypointNodes([], [], svgEl, 'diag', []);
     expect(result).toHaveLength(0);
+  });
+});
+
+// ── clampEndpointHandles ──────────────────────────────────────────────────────
+
+describe('clampEndpointHandles', () => {
+  it('returns path unchanged when there are no C commands (straight line)', () => {
+    const d = 'M100,100L200,200';
+    const result = clampEndpointHandles(d, { x: 100, y: 100 }, { x: 200, y: 200 });
+    expect(result).toBe(d);
+  });
+
+  it('redirects cp1 to exit along the edge direction', () => {
+    // Horizontal edge from (0,0) to (100,0).
+    // cp1 at (10, 40) — pointing up, which is wrong.
+    // After clamping, cp1 should point right (toward entry).
+    const d = 'M0,0C10,40,90,40,100,0';
+    const exit = { x: 0, y: 0 };
+    const entry = { x: 100, y: 0 };
+    const result = clampEndpointHandles(d, exit, entry);
+    // Parse the result and check cp1 is on the line y=0.
+    const match = /C([\d.-]+),([\d.-]+),/.exec(result);
+    expect(match).toBeTruthy();
+    const cp1y = parseFloat(match![2]);
+    expect(cp1y).toBeCloseTo(0, 1); // should lie on y=0 (edge direction)
+  });
+
+  it('redirects cp2 to arrive along the edge direction', () => {
+    // Vertical edge from (0,0) to (0,100).
+    // cp2 at (40, 90) — pointing sideways.
+    // After clamping, cp2 should point upward (toward exit direction).
+    const d = 'M0,0C40,10,40,90,0,100';
+    const exit = { x: 0, y: 0 };
+    const entry = { x: 0, y: 100 };
+    const result = clampEndpointHandles(d, exit, entry);
+    // cp2 should have x ≈ 0 (along vertical edge)
+    const match = /C[\d.-]+,[\d.-]+,([\d.-]+),([\d.-]+),/.exec(result);
+    expect(match).toBeTruthy();
+    const cp2x = parseFloat(match![1]);
+    expect(cp2x).toBeCloseTo(0, 1);
+  });
+
+  it('caps handle length at MAX_HANDLE_FRACTION of edge length', () => {
+    // Short edge (length=20) with a very long handle (50px).
+    const d = 'M0,0C50,0,50,20,20,0'; // cp1 50px from exit — too long for 20px edge
+    const exit = { x: 0, y: 0 };
+    const entry = { x: 20, y: 0 };
+    const result = clampEndpointHandles(d, exit, entry);
+    const match = /C([\d.-]+),([\d.-]+),/.exec(result);
+    const cp1x = parseFloat(match![1]);
+    // With edge length 20 and MAX_HANDLE_FRACTION=0.4, max handle = 8px
+    expect(cp1x).toBeLessThanOrEqual(8.1);
+  });
+
+  it('returns input unchanged when edge is degenerate (length≈0)', () => {
+    const d = 'M100,100C110,100,90,100,100,100';
+    const pt = { x: 100, y: 100 };
+    const result = clampEndpointHandles(d, pt, pt);
+    expect(result).toBe(d);
+  });
+});
+
+// ── renderDebugOverlay — all-edges mode ───────────────────────────────────────
+
+describe('renderDebugOverlay — debugAllEdges', () => {
+  it('draws handles for non-waypoint edges when debugAllEdges=true', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    // Create a path element for edge L_A_B_0
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('id', 'diag-L_A_B_0');
+    pathEl.setAttribute('d', 'M10,10C20,10,80,90,90,90');
+    svgEl.appendChild(pathEl);
+
+    const nodes: LayoutNode[] = [
+      { id: 'A', x: 10, y: 10, width: 0, height: 0 },
+      { id: 'B', x: 90, y: 90, width: 0, height: 0 },
+    ];
+    const edges = [{ id: 'L_A_B_0', start: 'A', end: 'B' }];
+
+    renderDebugOverlay(svgEl, nodes, [], edges, 'diag', true);
+
+    const overlay = svgEl.querySelector('#__clamp-debug');
+    expect(overlay).toBeTruthy();
+    // Should have handle lines (for cp1 and cp2) and anchor dots
+    const lines = overlay!.querySelectorAll('line');
+    expect(lines.length).toBeGreaterThan(0);
+    const circles = overlay!.querySelectorAll('circle');
+    expect(circles.length).toBeGreaterThan(0);
+  });
+
+  it('does not draw handles for non-waypoint edges when debugAllEdges=false', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('id', 'diag-L_A_B_0');
+    pathEl.setAttribute('d', 'M10,10C20,10,80,90,90,90');
+    svgEl.appendChild(pathEl);
+
+    const nodes: LayoutNode[] = [
+      { id: 'A', x: 10, y: 10, width: 0, height: 0 },
+      { id: 'B', x: 90, y: 90, width: 0, height: 0 },
+    ];
+    const edges = [{ id: 'L_A_B_0', start: 'A', end: 'B' }];
+
+    renderDebugOverlay(svgEl, nodes, [], edges, 'diag', false);
+
+    const overlay = svgEl.querySelector('#__clamp-debug');
+    expect(overlay).toBeTruthy();
+    // No waypoints, debugAllEdges=false → no handle lines for this edge
+    const lines = overlay!.querySelectorAll('line');
+    expect(lines.length).toBe(0);
+  });
+
+  it('replaces existing overlay on re-render', () => {
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const nodes: LayoutNode[] = [];
+
+    renderDebugOverlay(svgEl, nodes, [], [], 'diag', true);
+    renderDebugOverlay(svgEl, nodes, [], [], 'diag', true);
+
+    const overlays = svgEl.querySelectorAll('#__clamp-debug');
+    expect(overlays.length).toBe(1);
   });
 });

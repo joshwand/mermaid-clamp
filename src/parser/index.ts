@@ -321,9 +321,12 @@ function parseLine(
  *   for subsequent directional and align constraints
  */
 export function parseConstraints(mermaidText: string): ConstraintSet {
+  // Scan the full mermaid text for top-level `%% debug bezier` (outside the constraint block).
+  let debugBezier = mermaidText.split('\n').some((l) => l.trim() === '%% debug bezier');
+
   const lines = extractBlock(mermaidText);
   if (lines === null) {
-    return { version: 1, constraints: [], warnings: [] };
+    return { version: 1, constraints: [], warnings: [], ...(debugBezier ? { debugBezier: true } : {}) };
   }
 
   const constraints: Constraint[] = [];
@@ -334,7 +337,13 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
   for (const line of lines) {
     if (line.trim() === '') continue;
 
-    // `debug` is a standalone directive, not a constraint.
+    // `debug bezier` enables the all-edges handle overlay.
+    if (line.trim() === 'debug bezier') {
+      debugBezier = true;
+      continue;
+    }
+
+    // `debug` (alone) is a standalone directive, not a constraint.
     if (line.trim() === 'debug') {
       debug = true;
       continue;
@@ -354,5 +363,11 @@ export function parseConstraints(mermaidText: string): ConstraintSet {
     constraints.push(constraint);
   }
 
-  return { version: 1, constraints, warnings, ...(debug ? { debug: true } : {}) };
+  return {
+    version: 1,
+    constraints,
+    warnings,
+    ...(debug ? { debug: true } : {}),
+    ...(debugBezier ? { debugBezier: true } : {}),
+  };
 }
