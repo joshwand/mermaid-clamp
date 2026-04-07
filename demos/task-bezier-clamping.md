@@ -1,79 +1,50 @@
-# Demo: Bezier Endpoint Clamping + `%% debug bezier`
+# Bezier Endpoint Clamping + debug bezier overlay
 
-## Task
+Task: fix odd start/end angles on re-routed bezier edges and unnecessary curves on short edges. Adds `%% debug bezier` directive to show handles for ALL edges.
 
-Two improvements to bezier edge handling:
-
-1. **Bezier endpoint clamping** — after `reanchorPath` similarity-transforms a dagre-generated bezier to fit new node positions, the first and last control points could exit/enter the node at odd angles. `clampEndpointHandles` fixes this by redirecting them along the true edge direction and capping their lengths to prevent bulging on short edges.
-
-2. **`%% debug bezier` directive** — adds a visual overlay showing bezier control handles for ALL edges (dagre-generated + waypoint-routed), not just waypoint edges like the existing `debug` directive.
-
-## Test Output
-
-```
- ✓ src/parser/index.test.ts (48 tests)
- ✓ src/solver/index.test.ts (22 tests)
- ✓ src/serializer/index.test.ts (28 tests)
- ✓ src/index.test.ts (7 tests)
- ✓ src/layout/index.test.ts (50 tests)
+```bash
+$ pnpm test 2>&1 | tail -7
+ ✓ src/layout/index.test.ts (50 tests) 50ms
 
  Test Files  5 passed (5)
       Tests  155 passed (155)
+   Start at  05:03:50
+   Duration  1.01s (transform 256ms, setup 0ms, collect 345ms, tests 113ms, environment 615ms, prepare 283ms)
 ```
 
-13 new tests added (5 parser, 8 layout).
+155 tests passing (13 new).
 
-## Changes
-
-### `src/types.ts`
-- Added `debugBezier?: boolean` to `ConstraintSet`
-
-### `src/parser/index.ts`
-- `%% debug bezier` anywhere in mermaid source → `debugBezier: true`
-- `debug bezier` inside constraint block → same
-- Both coexist with `debug` (waypoint-only overlay)
-
-### `src/layout/index.ts`
-
-**`clampEndpointHandles(d, exitPt, adjustedEntry)`** (exported, tested):
-- Redirects cp1 of the first `C` command to exit along `exitPt → adjustedEntry`
-- Redirects cp2 of the last `C` command to arrive along the same direction
-- Caps both lengths at `edgeLen × 0.4` to prevent bulging on short/straight edges
-- Returns `d` unchanged if there are no `C` commands or edge length ≈ 0
-
-**`reRouteEdgesInSVG`**:
-- After `reanchorPath`, now calls `clampEndpointHandles` before writing the `d` attribute
-
-**`renderDebugOverlay(…, debugAllEdges?)`** (extended):
-- New `debugAllEdges` param (passed as `cs.debugBezier`)
-- When `true`: annotates ALL edges, not just waypoint-routed ones
-- New `appendPathHandles(g, d, isWaypointEdge)` helper:
-  - Blue dashed lines + blue dots for bezier control handles
-  - Green anchor dots at on-curve points (dagre edges)
-  - Orange anchor dots at on-curve points (waypoint edges)
-
-**Render function**:
-- Early-return guard now also checks `!cs.debugBezier`
-- Passes `cs.debugBezier` to `renderDebugOverlay`
-
-## Usage
-
-```mermaid
-flowchart TD
-A --> B
-B --> C
-%% debug bezier
+```bash
+$ grep -n 'clampEndpointHandles\|MAX_HANDLE_FRACTION\|debugAllEdges\|debugBezier' src/layout/index.ts | head -20
+153:const MAX_HANDLE_FRACTION = 0.4;
+353: * 3. All first/last handle lengths to at most `MAX_HANDLE_FRACTION * edgeLen`
+358:export function clampEndpointHandles(
+370:  const maxHandleLen = edgeLen * MAX_HANDLE_FRACTION;
+473:      pathEl.setAttribute('d', clampEndpointHandles(reanchored, exitPt, adjustedEntry));
+940: * When `debugAllEdges` is true (activated by `%% debug bezier`), handles are
+954:  debugAllEdges?: boolean,
+1004:    if (!debugAllEdges && !hasWaypoints) continue;
+1172:    if (cs.constraints.length === 0 && !cs.debug && !cs.debugBezier) return;
+1207:    if (cs.debug || cs.debugBezier) {
+1208:      renderDebugOverlay(svgEl, solved, waypointDecls, edges, diagramId, cs.debugBezier);
 ```
 
-Or inside a constraint block:
+clampEndpointHandles: after reanchorPath similarity-transforms a dagre path, redirects cp1 of the first C command along the exit direction and cp2 of the last C command along the entry direction. Caps both at edgeLen x 0.4 to prevent bulging on short edges. Applied in reRouteEdgesInSVG.
 
+```bash
+$ grep -n 'debugBezier\|debug bezier' src/parser/index.ts src/types.ts
+src/parser/index.ts:324:  // Scan the full mermaid text for top-level `%% debug bezier` (outside the constraint block).
+src/parser/index.ts:325:  let debugBezier = mermaidText.split('\n').some((l) => l.trim() === '%% debug bezier');
+src/parser/index.ts:329:    return { version: 1, constraints: [], warnings: [], ...(debugBezier ? { debugBezier: true } : {}) };
+src/parser/index.ts:340:    // `debug bezier` enables the all-edges handle overlay.
+src/parser/index.ts:341:    if (line.trim() === 'debug bezier') {
+src/parser/index.ts:342:      debugBezier = true;
+src/parser/index.ts:371:    ...(debugBezier ? { debugBezier: true } : {}),
+src/types.ts:154:   * Activated by a `%% debug bezier` line anywhere in the mermaid source.
+src/types.ts:156:  debugBezier?: boolean;
 ```
-%% @layout-constraints v1
-%% debug bezier
-%% A south-of B, 60
-%% @end-layout-constraints
-```
 
-## Status
+% debug bezier works as a top-level mermaid comment (or 'debug bezier' inside the constraint block). Sets debugBezier=true on ConstraintSet. renderDebugOverlay draws handles for ALL edges when debugAllEdges=true: blue dashed handle lines, blue control-point dots, green anchor dots (dagre edges), orange anchor dots (waypoint edges).
 
-Ready for human review.
+Ready for review.
+
