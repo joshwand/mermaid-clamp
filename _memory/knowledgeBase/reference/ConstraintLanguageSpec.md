@@ -162,6 +162,47 @@ Waypoints are ordered by declaration sequence. Edge routes: A → wp1 → wp2 �
 
 **Waypoint constraints follow all the same rules as node constraints** — directional offsets, alignment, grouping, anchoring. The only difference: waypoints have zero width/height and cannot be connection endpoints.
 
+### Bezier Handle Lengths
+
+Override the pixel length of bezier spline control handles on waypoint-routed edges. The catmull-rom tangent *direction* is always preserved — only the handle scalar length is replaced.
+
+**Waypoint form** (controls both handles at a waypoint):
+```
+%% bezier wp1, 60           ← incoming handle = 60 px, outgoing unchanged
+%% bezier wp1, 60, 80       ← incoming = 60, outgoing = 80
+```
+
+- `incomingLength` — length of cp2 for the segment ending at this waypoint
+- `outgoingLength` — length of cp1 for the segment starting at this waypoint (optional)
+
+**Segment form** (controls the handle at the real-node end of a boundary segment):
+```
+%% bezier A-->wp1, 50       ← outgoing handle from A (exit point) = 50 px
+%% bezier wp1-->B, 40       ← incoming handle at B (entry point) = 40 px
+%% bezier wp1-->wp2, 30     ← outgoing handle from wp1 = 30 px
+```
+
+- `bezier A-->wp1, L`: source is a real node → the handle leaving A is L px.
+- `bezier wp1-->B, L`: target is a real node → the handle arriving at B is L px.
+- `bezier wp1-->wp2, L`: both are waypoints → the outgoing handle from wp1 is L px.
+
+Segment form accepts exactly one length. Two lengths are only valid in the waypoint form.
+
+**Default behaviour** (without `bezier`): catmull-rom tension=1/3 is used for all handles.
+
+### Debug Directive
+
+```
+%% debug
+```
+
+When present in the constraint block, renders a non-interactive SVG overlay on top of the constrained diagram:
+
+- **Red square** (8×8 px) at each waypoint's resolved position.
+- **Blue dashed lines** from each spline anchor point to its bezier control handle, with a **blue dot** at the handle tip.
+
+The overlay is appended as `<g id="__clamp-debug">` and is replaced on every re-render. It has `pointer-events="none"` so it does not interfere with mouse events. Remove `%% debug` to get a clean SVG.
+
 ## Grammar (Formal)
 
 ```ebnf
@@ -170,12 +211,14 @@ constraint_block  = "%% @layout-constraints v" VERSION NEWLINE
                     "%% @end-layout-constraints"
 
 constraint_line   = "%%" SP constraint_expr
+                  | "%%" SP "debug"
 
 constraint_expr   = directional_expr
                   | align_expr
                   | group_expr
                   | anchor_expr
                   | waypoint_decl_expr
+                  | bezier_expr
 
 directional_expr  = NODE_ID SP DIRECTION SP NODE_ID "," SP NUMBER
 DIRECTION         = "north-of" | "south-of" | "east-of" | "west-of"
@@ -190,6 +233,10 @@ anchor_expr       = "anchor" SP NODE_ID "," SP NUMBER "," SP NUMBER
 
 waypoint_decl_expr = "waypoint" SP EDGE_ID SP "as" SP WP_ID
 
+bezier_expr       = "bezier" SP BEZIER_TARGET "," SP NUMBER [ "," SP NUMBER ]
+BEZIER_TARGET     = WP_ID                   (* waypoint form; 1 or 2 lengths *)
+                  | NODE_ID ARROW NODE_ID   (* segment form; exactly 1 length *)
+
 EDGE_ID           = NODE_ID ARROW NODE_ID
 ARROW             = "-->" | "---" | "==>" | "-.->" | "--"
 NODE_ID           = [a-zA-Z0-9_]+
@@ -200,7 +247,10 @@ VERSION           = "1"
 SP                = " "
 ```
 
-Note: Once a waypoint is declared via `waypoint_decl_expr`, its `WP_ID` becomes a valid `NODE_ID` for use in subsequent `directional_expr` and `align_expr` constraints.
+Notes:
+- Once a waypoint is declared via `waypoint_decl_expr`, its `WP_ID` becomes a valid `NODE_ID` for use in subsequent `directional_expr`, `align_expr`, and `bezier_expr` constraints.
+- The `debug` directive is a standalone keyword, not a constraint. It may appear on any line within the block.
+- `bezier_expr` with a `BEZIER_TARGET` containing an arrow is the segment form and accepts exactly one length. Without an arrow it is the waypoint form and accepts one or two lengths.
 
 ## Complete Example
 

@@ -20,6 +20,11 @@ function serializeOne(c: Constraint): string {
       return `anchor ${c.node}, ${c.x}, ${c.y}`;
     case 'waypoint':
       return `waypoint ${c.edgeId} as ${c.waypointId}`;
+    case 'bezier':
+      if (c.outgoingLength !== undefined) {
+        return `bezier ${c.targetId}, ${c.incomingLength}, ${c.outgoingLength}`;
+      }
+      return `bezier ${c.targetId}, ${c.incomingLength}`;
   }
 }
 
@@ -33,10 +38,11 @@ function serializeOne(c: Constraint): string {
  */
 const TYPE_ORDER: Record<Constraint['type'], number> = {
   waypoint: 0,
-  anchor: 1,
-  group: 2,
-  align: 3,
-  directional: 4,
+  bezier: 1,
+  anchor: 2,
+  group: 3,
+  align: 4,
+  directional: 5,
 };
 
 function firstNodeKey(c: Constraint): string {
@@ -46,6 +52,7 @@ function firstNodeKey(c: Constraint): string {
     case 'group':       return c.nodes[0] ?? '';
     case 'anchor':      return c.node;
     case 'waypoint':    return c.edgeId;
+    case 'bezier':      return c.targetId;
   }
 }
 
@@ -61,17 +68,21 @@ function sortKey(c: Constraint): string {
  * Output is deterministic: sorted by type order, then first node ID.
  */
 export function serializeConstraints(cs: ConstraintSet): string {
-  if (cs.constraints.length === 0) return '';
+  if (cs.constraints.length === 0 && !cs.debug) return '';
 
   const sorted = cs.constraints.slice().sort((a, b) =>
     sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0,
   );
 
-  const lines = [
-    BLOCK_START,
-    ...sorted.map((c) => `${LINE_PREFIX}${serializeOne(c)}`),
-    BLOCK_END,
-  ];
+  const innerLines: string[] = [];
+  if (cs.debug) {
+    innerLines.push(`${LINE_PREFIX}debug`);
+  }
+  for (const c of sorted) {
+    innerLines.push(`${LINE_PREFIX}${serializeOne(c)}`);
+  }
+
+  const lines = [BLOCK_START, ...innerLines, BLOCK_END];
 
   return lines.join('\n');
 }

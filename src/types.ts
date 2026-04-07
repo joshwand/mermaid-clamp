@@ -87,13 +87,51 @@ export interface WaypointDeclaration {
   waypointId: string;
 }
 
+/**
+ * `bezier wp1, 60` or `bezier wp1, 60, 80` — overrides the bezier handle lengths
+ * at a waypoint or at the real-node end of a boundary edge segment.
+ *
+ * Two forms:
+ *
+ *   bezier <waypointId>, <incomingLength> [, <outgoingLength>]
+ *     Controls the handles on both sides of a waypoint.
+ *     incomingLength = cp2 length for the segment ending at the waypoint.
+ *     outgoingLength = cp1 length for the segment starting at the waypoint.
+ *
+ *   bezier <edgeSegId>, <length>
+ *     edgeSegId is a segment like "A-->wp1" (source is a real node) or
+ *     "wp1-->B" (target is a real node).
+ *     For "A-->wp1": sets the outgoing handle length at A (cp1 of that segment).
+ *     For "wp1-->B": sets the incoming handle length at B (cp2 of that segment).
+ *
+ * Handle direction is always derived from the catmull-rom tangent of surrounding
+ * points; only the length is overridden.
+ */
+export interface BezierHandleConstraint {
+  type: 'bezier';
+  id: string;
+  /**
+   * Waypoint ID (node form) or edge segment like "A-->wp1" or "wp1-->B"
+   * (segment form, distinguished by the presence of an arrow token).
+   */
+  targetId: string;
+  /**
+   * Waypoint form: incoming handle length (handle arriving at the waypoint).
+   * Segment form: the single handle length (applied to the real-node end).
+   */
+  incomingLength: number;
+  /** Waypoint form only: outgoing handle length (handle leaving the waypoint). */
+  outgoingLength?: number;
+}
+
 /** Union of all constraint variants. */
 export type Constraint =
   | DirectionalConstraint
   | AlignConstraint
   | GroupConstraint
   | AnchorConstraint
-  | WaypointDeclaration;
+  | WaypointDeclaration
+  | BezierHandleConstraint;
 
 // ── Aggregate model ───────────────────────────────────────────────────────────
 
@@ -103,6 +141,13 @@ export interface ConstraintSet {
   constraints: Constraint[];
   /** Human-readable warning messages for malformed or skipped lines. */
   warnings?: string[];
+  /**
+   * When true, the layout engine renders a debug overlay on top of the diagram:
+   * - Each waypoint is marked with a small red square.
+   * - The bezier control handles for each waypoint edge are drawn in blue.
+   * Activated by a `%% debug` line inside the constraint block.
+   */
+  debug?: boolean;
 }
 
 // ── Layout types ─────────────────────────────────────────────────────────────

@@ -8,8 +8,21 @@
 
 ## Scratchpad
 
-### Tasks 1–6 + Bugs: all complete
-122 tests passing. Branch: `claude/fix-backlog-bugs-UZt5W`.
+### Tasks 1–6 + Bugs + debug/bezier features: all complete
+142 tests passing. Branch: `claude/debug-bezier-handles-XJ1mm`.
+
+### Completed out-of-backlog features (session 3)
+
+**debug directive + bezier handle length control** — fully implemented, tested, demoed.
+
+Files changed:
+- `src/types.ts` — `BezierHandleConstraint`, `ConstraintSet.debug?`
+- `src/parser/index.ts` — `debug` directive, `bezier` parser
+- `src/serializer/index.ts` — serializes both; round-trip safe
+- `src/layout/index.ts` — `HandleOverride`, `buildSplinePath` overrides, `buildHandleOverrides`, `filterBezierConstraintsForEdge`, `renderDebugOverlay`
+- Tests: 20 new tests across parser, serializer, layout
+- Demo: `demos/task-debug-bezier.md` (8 scenarios), `demos/scripts/capture-debug-bezier.mjs`
+- Spec: `_memory/knowledgeBase/reference/ConstraintLanguageSpec.md` updated
 
 ### Task 7 spec (from theBacklog.md)
 
@@ -31,14 +44,12 @@
 - Subscribe fires on change
 - Deep clone: returned state is independent
 
-**Verification:** Showboat doc executing state manager operations and logging state transitions.
-
 **Depends on:** Task 1 (types already exist)
 
 ### Demo scripts location
 All capture scripts are in `demos/scripts/`.
-Demo docs are in `demos/task-NN.md`.
-Screenshots are in `demos/task-NN/`.
+Demo docs are in `demos/task-NN.md` or `demos/task-<name>.md`.
+Screenshots are in `demos/task-NN/` or `demos/task-<name>/`.
 
 ## Action Log
 
@@ -47,4 +58,4 @@ Screenshots are in `demos/task-NN/`.
 - Session 2: implemented Task 6 (waypoint edge router, catmull-rom splines, SPLINE_TENSION=1/3)
 - Session 2: reorganized demos/ into subdirectories; moved .mjs scripts to demos/scripts/
 - Session 2: expanded Task 6 demo to 8 scenarios; committed and pushed all
-- Session 2: updated memory files (theBacklog, currentEpic, currentTaskState)
+- Session 3: implemented debug overlay + bezier handle length; 20 new tests; demo + spec updated

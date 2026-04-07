@@ -13,7 +13,7 @@
 
 import { parseConstraints, splitEdgeId } from '../parser/index.js';
 import { solveConstraints } from '../solver/index.js';
-import type { LayoutAlgorithm, LayoutLoaderDefinition, LayoutNode, WaypointDeclaration } from '../types.js';
+import type { BezierHandleConstraint, LayoutAlgorithm, LayoutLoaderDefinition, LayoutNode, WaypointDeclaration } from '../types.js';
 
 // ── Side-channel ──────────────────────────────────────────────────────────────
 
@@ -430,13 +430,31 @@ export function reRouteEdgesInSVG(
 const SPLINE_TENSION = 1 / 3;
 
 /**
+ * Per-point handle length overrides for `buildSplinePath`.
+ * `outLen` overrides the cp1 length for the segment *leaving* this point.
+ * `inLen` overrides the cp2 length for the segment *arriving at* this point.
+ * The catmull-rom tangent direction is always preserved; only the length changes.
+ */
+export interface HandleOverride {
+  outLen?: number;
+  inLen?: number;
+}
+
+/**
  * Build a smooth catmull-rom spline SVG path through an ordered sequence of
  * points. Interior points are passed through exactly; endpoints have zero
  * tangent (the phantom endpoints are duplicated).
  *
+ * `handleOverrides` is a sparse array (same length as `points`) where each
+ * element can override the outgoing and/or incoming handle lengths for that
+ * point. Unspecified lengths fall back to the standard catmull-rom value.
+ *
  * Returns an SVG `d` string.
  */
-export function buildSplinePath(points: Array<{ x: number; y: number }>): string {
+export function buildSplinePath(
+  points: Array<{ x: number; y: number }>,
+  handleOverrides?: Array<HandleOverride | undefined>,
+): string {
   if (points.length === 0) return '';
   const r = (n: number) => Math.round(n * 100) / 100;
 
@@ -457,10 +475,43 @@ export function buildSplinePath(points: Array<{ x: number; y: number }>): string
     const p2 = points[i + 1];
     const p3 = points[Math.min(points.length - 1, i + 2)];
 
-    const cp1x = p1.x + (p2.x - p0.x) * SPLINE_TENSION;
-    const cp1y = p1.y + (p2.y - p0.y) * SPLINE_TENSION;
-    const cp2x = p2.x - (p3.x - p1.x) * SPLINE_TENSION;
-    const cp2y = p2.y - (p3.y - p1.y) * SPLINE_TENSION;
+    // Catmull-rom tangent for cp1 (outgoing from p1): direction = p2 - p0.
+    const t1x = p2.x - p0.x;
+    const t1y = p2.y - p0.y;
+    const t1len = Math.hypot(t1x, t1y);
+
+    const outLenOverride = handleOverrides?.[i]?.outLen;
+    let cp1x: number;
+    let cp1y: number;
+    if (t1len < 0.01) {
+      cp1x = p1.x;
+      cp1y = p1.y;
+    } else if (outLenOverride !== undefined) {
+      cp1x = p1.x + (t1x / t1len) * outLenOverride;
+      cp1y = p1.y + (t1y / t1len) * outLenOverride;
+    } else {
+      cp1x = p1.x + t1x * SPLINE_TENSION;
+      cp1y = p1.y + t1y * SPLINE_TENSION;
+    }
+
+    // Catmull-rom tangent for cp2 (incoming to p2): direction = -(p3 - p1).
+    const t2x = p3.x - p1.x;
+    const t2y = p3.y - p1.y;
+    const t2len = Math.hypot(t2x, t2y);
+
+    const inLenOverride = handleOverrides?.[i + 1]?.inLen;
+    let cp2x: number;
+    let cp2y: number;
+    if (t2len < 0.01) {
+      cp2x = p2.x;
+      cp2y = p2.y;
+    } else if (inLenOverride !== undefined) {
+      cp2x = p2.x - (t2x / t2len) * inLenOverride;
+      cp2y = p2.y - (t2y / t2len) * inLenOverride;
+    } else {
+      cp2x = p2.x - t2x * SPLINE_TENSION;
+      cp2y = p2.y - t2y * SPLINE_TENSION;
+    }
 
     d += `C${r(cp1x)},${r(cp1y)},${r(cp2x)},${r(cp2y)},${r(p2.x)},${r(p2.y)}`;
   }
@@ -477,6 +528,10 @@ export function buildSplinePath(points: Array<{ x: number; y: number }>): string
  * adjacent waypoint (or the other endpoint if no waypoints). The entry
  * point is pulled back by ARROW_MARGIN for the arrowhead.
  *
+ * `bezierConstraints` is the list of bezier handle constraints that apply to
+ * this edge. `waypointIds` is a parallel array to `waypointPositions` giving
+ * the waypoint ID for each position, used to look up per-waypoint overrides.
+ *
  * The edge label element (identified by `data-id="<edgeId>"`) is relocated to
  * the geometric midpoint of the new path.
  */
@@ -487,6 +542,8 @@ export function routeEdgeThroughWaypoints(
   waypointPositions: Array<{ x: number; y: number }>,
   src: LayoutNode,
   tgt: LayoutNode,
+  bezierConstraints?: BezierHandleConstraint[],
+  waypointIds?: string[],
 ): void {
   // Exit point: src border facing first waypoint (or tgt if no waypoints).
   const firstTarget = waypointPositions[0] ?? { x: tgt.x, y: tgt.y };
@@ -511,7 +568,17 @@ export function routeEdgeThroughWaypoints(
   }
 
   const allPoints = [exitPt, ...waypointPositions, adjustedEntry];
-  pathEl.setAttribute('d', buildSplinePath(allPoints));
+
+  // Build handle overrides from bezier constraints.
+  const handleOverrides = buildHandleOverrides(
+    allPoints,
+    src.id,
+    tgt.id,
+    waypointIds ?? [],
+    bezierConstraints ?? [],
+  );
+
+  pathEl.setAttribute('d', buildSplinePath(allPoints, handleOverrides));
 
   // Reposition edge label to the geometric midpoint of the new path.
   const labelEl = svgEl.querySelector(`[data-id="${cssEscapeId(edgeId)}"]`);
@@ -526,11 +593,80 @@ export function routeEdgeThroughWaypoints(
 }
 
 /**
+ * Translate a list of BezierHandleConstraints into a per-point HandleOverride
+ * array parallel to `allPoints` = [exitPt, wp0, wp1, ..., adjustedEntry].
+ *
+ * - Waypoint form (`bezier wp1, in, out`): sets inLen/outLen at the waypoint's
+ *   index in allPoints.
+ * - Segment form with real source (`bezier A-->wp1, len`): sets outLen at
+ *   index 0 (the exit point from the real source node).
+ * - Segment form with real target (`bezier wp1-->B, len`): sets inLen at the
+ *   last index (the adjusted entry into the real target node).
+ * - Segment form with two waypoints (`bezier wp1-->wp2, len`): sets outLen at
+ *   the source waypoint index.
+ */
+function buildHandleOverrides(
+  allPoints: Array<{ x: number; y: number }>,
+  srcId: string,
+  tgtId: string,
+  waypointIds: string[],
+  bezierConstraints: BezierHandleConstraint[],
+): Array<HandleOverride | undefined> {
+  const overrides: Array<HandleOverride | undefined> = new Array(allPoints.length).fill(undefined);
+  const waypointSet = new Set(waypointIds);
+
+  const ensure = (i: number): HandleOverride => {
+    if (!overrides[i]) overrides[i] = {};
+    return overrides[i]!;
+  };
+
+  for (const bc of bezierConstraints) {
+    const seg = splitEdgeId(bc.targetId);
+
+    if (seg === null) {
+      // Waypoint form: targetId is a waypoint ID.
+      const wpIdx = waypointIds.indexOf(bc.targetId);
+      if (wpIdx === -1) continue;
+      const ptIdx = wpIdx + 1; // allPoints[0] = exitPt, so wp[0] is at index 1
+      ensure(ptIdx).inLen = bc.incomingLength;
+      if (bc.outgoingLength !== undefined) {
+        ensure(ptIdx).outLen = bc.outgoingLength;
+      }
+    } else {
+      // Segment form: one length that applies to the "outer" real-node end.
+      const { source, target } = seg;
+      const sourceIsReal = source === srcId;
+      const targetIsReal = target === tgtId;
+      const sourceIsWaypoint = waypointSet.has(source);
+      const targetIsWaypoint = waypointSet.has(target);
+
+      if (sourceIsReal && targetIsWaypoint) {
+        // e.g. "A-->wp1": source is the real node → outgoing handle at exitPt (index 0).
+        ensure(0).outLen = bc.incomingLength;
+      } else if (sourceIsWaypoint && targetIsReal) {
+        // e.g. "wp1-->B": target is the real node → incoming handle at adjustedEntry.
+        ensure(allPoints.length - 1).inLen = bc.incomingLength;
+      } else if (sourceIsWaypoint && targetIsWaypoint) {
+        // e.g. "wp1-->wp2": set outgoing from the source waypoint.
+        const wpIdx = waypointIds.indexOf(source);
+        if (wpIdx !== -1) ensure(wpIdx + 1).outLen = bc.incomingLength;
+      }
+    }
+  }
+
+  return overrides;
+}
+
+/**
  * After constraint solving, route edges that have waypoint declarations
  * through the resolved waypoint positions.
  *
  * Waypoints on the same edge are processed in the order they appear in
  * `waypointDecls` (which preserves parse order = user-specified order).
+ *
+ * `bezierConstraints` is the full list of bezier handle constraints from the
+ * parsed ConstraintSet; each edge receives only the constraints whose targetId
+ * references one of its own waypoints or boundary segments.
  *
  * Edges without waypoints are left untouched by this function
  * (they are already handled by `reRouteEdgesInSVG`).
@@ -541,6 +677,7 @@ export function routeEdgesWithWaypoints(
   waypointDecls: WaypointDeclaration[],
   edges: EdgeDataEntry[],
   diagramId: string,
+  bezierConstraints?: BezierHandleConstraint[],
 ): void {
   if (waypointDecls.length === 0) return;
 
@@ -585,8 +722,45 @@ export function routeEdgesWithWaypoints(
     if (!pathEl) continue;
 
     const waypointPositions = matchedWaypoints.map((w) => ({ x: w.pos.x, y: w.pos.y }));
-    routeEdgeThroughWaypoints(svgEl, pathEl, edgeId, waypointPositions, src, tgt);
+    const waypointIds = matchedWaypoints.map((w) => w.decl.waypointId);
+
+    // Collect bezier constraints that reference this edge's waypoints or boundary segments.
+    const edgeBezierConstraints = filterBezierConstraintsForEdge(
+      bezierConstraints ?? [],
+      srcId,
+      tgtId,
+      new Set(waypointIds),
+    );
+
+    routeEdgeThroughWaypoints(
+      svgEl, pathEl, edgeId, waypointPositions, src, tgt,
+      edgeBezierConstraints, waypointIds,
+    );
   }
+}
+
+/**
+ * Return only the bezier constraints that apply to the given edge,
+ * identified by its source ID, target ID, and waypoint ID set.
+ */
+function filterBezierConstraintsForEdge(
+  all: BezierHandleConstraint[],
+  srcId: string,
+  tgtId: string,
+  waypointIdSet: Set<string>,
+): BezierHandleConstraint[] {
+  return all.filter((bc) => {
+    const seg = splitEdgeId(bc.targetId);
+    if (seg === null) {
+      // Waypoint form: targetId must be one of this edge's waypoints.
+      return waypointIdSet.has(bc.targetId);
+    }
+    // Segment form: source or target must match this edge's real nodes or waypoints.
+    const { source, target } = seg;
+    const srcOk = source === srcId || waypointIdSet.has(source);
+    const tgtOk = target === tgtId || waypointIdSet.has(target);
+    return srcOk && tgtOk;
+  });
 }
 
 /**
@@ -683,6 +857,152 @@ function getPathMidpoint(d: string): { x: number; y: number } | null {
   return { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
 }
 
+// ── Debug overlay ─────────────────────────────────────────────────────────────
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * Render a debug overlay onto the SVG showing:
+ * - A small red square at each waypoint position.
+ * - Blue bezier control-handle lines and dots for every C command on
+ *   waypoint-routed edge paths.
+ *
+ * An existing debug overlay (identified by `id="__clamp-debug"`) is removed
+ * and replaced on each call so re-renders stay clean.
+ */
+export function renderDebugOverlay(
+  svgEl: Element,
+  solvedNodes: LayoutNode[],
+  waypointDecls: WaypointDeclaration[],
+  edges: EdgeDataEntry[],
+  diagramId: string,
+): void {
+  // Remove any pre-existing overlay.
+  svgEl.querySelector('#__clamp-debug')?.remove();
+
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('id', '__clamp-debug');
+  g.setAttribute('pointer-events', 'none');
+
+  const solvedMap = new Map(solvedNodes.map((n) => [n.id, n]));
+
+  // Collect waypoint IDs grouped by edge.
+  const waypointIdsByEdge = new Map<string, string[]>();
+  for (const decl of waypointDecls) {
+    const list = waypointIdsByEdge.get(decl.edgeId) ?? [];
+    list.push(decl.waypointId);
+    waypointIdsByEdge.set(decl.edgeId, list);
+  }
+
+  // Draw red squares at each waypoint position.
+  const SQUARE_SIZE = 8;
+  for (const decl of waypointDecls) {
+    const pos = solvedMap.get(decl.waypointId);
+    if (!pos) continue;
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', String(pos.x - SQUARE_SIZE / 2));
+    rect.setAttribute('y', String(pos.y - SQUARE_SIZE / 2));
+    rect.setAttribute('width', String(SQUARE_SIZE));
+    rect.setAttribute('height', String(SQUARE_SIZE));
+    rect.setAttribute('fill', 'red');
+    rect.setAttribute('opacity', '0.85');
+    g.appendChild(rect);
+  }
+
+  // Draw blue control-handle lines and dots for waypoint edge paths.
+  const processedEdgeIds = new Set<string>();
+  for (const edge of edges) {
+    const srcId = edge.start ?? edge.v;
+    const tgtId = edge.end ?? edge.w;
+    if (!srcId || !tgtId) continue;
+
+    // Find waypoints for this edge.
+    let edgeWaypointIds: string[] | undefined;
+    for (const [edgeKey, wpIds] of waypointIdsByEdge) {
+      const parsed = splitEdgeId(edgeKey);
+      if (parsed && parsed.source === srcId && parsed.target === tgtId) {
+        edgeWaypointIds = wpIds;
+        break;
+      }
+    }
+    if (!edgeWaypointIds || edgeWaypointIds.length === 0) continue;
+
+    const edgeId = edge.id ?? `L_${srcId}_${tgtId}_0`;
+    if (processedEdgeIds.has(edgeId)) continue;
+    processedEdgeIds.add(edgeId);
+
+    const pathEl = svgEl.querySelector(`[id="${cssEscapeId(`${diagramId}-${edgeId}`)}"]`);
+    const d = pathEl?.getAttribute('d');
+    if (!d) continue;
+
+    // Parse C commands from the path to extract control points.
+    const segs = parsePathSegments(d);
+    let currentX = 0;
+    let currentY = 0;
+
+    for (const seg of segs) {
+      const upper = seg.cmd.toUpperCase();
+      if (upper === 'M') {
+        currentX = seg.nums[0] ?? 0;
+        currentY = seg.nums[1] ?? 0;
+      } else if (upper === 'C') {
+        // C cp1x,cp1y,cp2x,cp2y,x,y
+        for (let i = 0; i + 5 < seg.nums.length; i += 6) {
+          const cp1x = seg.nums[i];
+          const cp1y = seg.nums[i + 1];
+          const cp2x = seg.nums[i + 2];
+          const cp2y = seg.nums[i + 3];
+          const ex   = seg.nums[i + 4];
+          const ey   = seg.nums[i + 5];
+
+          // Line from start point to cp1.
+          appendHandleLine(g, currentX, currentY, cp1x, cp1y);
+          appendHandleDot(g, cp1x, cp1y);
+
+          // Line from end point to cp2.
+          appendHandleLine(g, ex, ey, cp2x, cp2y);
+          appendHandleDot(g, cp2x, cp2y);
+
+          currentX = ex;
+          currentY = ey;
+        }
+      } else if (upper === 'L') {
+        currentX = seg.nums[seg.nums.length - 2] ?? currentX;
+        currentY = seg.nums[seg.nums.length - 1] ?? currentY;
+      }
+    }
+  }
+
+  svgEl.appendChild(g);
+}
+
+function appendHandleLine(
+  g: Element,
+  x1: number, y1: number,
+  x2: number, y2: number,
+): void {
+  const line = document.createElementNS(SVG_NS, 'line');
+  line.setAttribute('x1', String(Math.round(x1 * 100) / 100));
+  line.setAttribute('y1', String(Math.round(y1 * 100) / 100));
+  line.setAttribute('x2', String(Math.round(x2 * 100) / 100));
+  line.setAttribute('y2', String(Math.round(y2 * 100) / 100));
+  line.setAttribute('stroke', 'blue');
+  line.setAttribute('stroke-width', '1');
+  line.setAttribute('stroke-dasharray', '3,2');
+  line.setAttribute('opacity', '0.8');
+  g.appendChild(line);
+}
+
+function appendHandleDot(g: Element, cx: number, cy: number): void {
+  const circle = document.createElementNS(SVG_NS, 'circle');
+  circle.setAttribute('cx', String(Math.round(cx * 100) / 100));
+  circle.setAttribute('cy', String(Math.round(cy * 100) / 100));
+  circle.setAttribute('r', '3');
+  circle.setAttribute('fill', 'blue');
+  circle.setAttribute('opacity', '0.8');
+  g.appendChild(circle);
+}
+
 // ── Constraint application (testable without DOM) ─────────────────────────────
 
 /**
@@ -746,7 +1066,7 @@ const constrainedDagreAlgorithm = {
     const text = diagramTextMap.get(diagramId);
     if (!text) return;
     const cs = parseConstraints(text);
-    if (cs.constraints.length === 0) return;
+    if (cs.constraints.length === 0 && !cs.debug) return;
 
     // Collect parser warnings.
     for (const w of cs.warnings ?? []) pendingWarnings.push(w);
@@ -775,7 +1095,15 @@ const constrainedDagreAlgorithm = {
     reRouteEdgesInSVG(svgEl, nodes, solved, edges, diagramId);
 
     // Step 7: Route edges with waypoints through their resolved waypoint positions.
-    routeEdgesWithWaypoints(svgEl, solved, waypointDecls, edges, diagramId);
+    const bezierConstraints = cs.constraints.filter(
+      (c): c is BezierHandleConstraint => c.type === 'bezier',
+    );
+    routeEdgesWithWaypoints(svgEl, solved, waypointDecls, edges, diagramId, bezierConstraints);
+
+    // Step 8: If debug mode is active, render the debug overlay.
+    if (cs.debug) {
+      renderDebugOverlay(svgEl, solved, waypointDecls, edges, diagramId);
+    }
   },
 };
 

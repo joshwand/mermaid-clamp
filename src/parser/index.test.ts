@@ -328,3 +328,99 @@ describe('parseConstraints — malformed lines', () => {
     expect(result.constraints[0].type).toBe('directional');
   });
 });
+
+// ── Debug directive ───────────────────────────────────────────────────────────
+
+describe('parseConstraints — debug directive', () => {
+  it('sets debug=true when %% debug is present', () => {
+    const result = parseConstraints(wrap('debug'));
+    expect(result.debug).toBe(true);
+    expect(result.constraints).toHaveLength(0);
+  });
+
+  it('debug=undefined when directive is absent', () => {
+    const result = parseConstraints(wrap('A south-of B, 20'));
+    expect(result.debug).toBeUndefined();
+  });
+
+  it('debug coexists with other constraints', () => {
+    const text = wrap('debug\nA south-of B, 20');
+    const result = parseConstraints(text);
+    expect(result.debug).toBe(true);
+    expect(result.constraints).toHaveLength(1);
+    expect(result.constraints[0].type).toBe('directional');
+  });
+});
+
+// ── Bezier handle constraints ─────────────────────────────────────────────────
+
+describe('parseConstraints — bezier', () => {
+  it('parses waypoint form with one length', () => {
+    const text = wrap('waypoint A-->B as wp1\nbezier wp1, 60');
+    const result = parseConstraints(text);
+    expect(result.constraints).toHaveLength(2);
+    const bc = result.constraints[1];
+    expect(bc.type).toBe('bezier');
+    if (bc.type === 'bezier') {
+      expect(bc.targetId).toBe('wp1');
+      expect(bc.incomingLength).toBe(60);
+      expect(bc.outgoingLength).toBeUndefined();
+    }
+  });
+
+  it('parses waypoint form with two lengths', () => {
+    const text = wrap('waypoint A-->B as wp1\nbezier wp1, 60, 80');
+    const result = parseConstraints(text);
+    const bc = result.constraints[1];
+    expect(bc.type).toBe('bezier');
+    if (bc.type === 'bezier') {
+      expect(bc.targetId).toBe('wp1');
+      expect(bc.incomingLength).toBe(60);
+      expect(bc.outgoingLength).toBe(80);
+    }
+  });
+
+  it('parses segment form A-->wp1', () => {
+    const text = wrap('waypoint A-->B as wp1\nbezier A-->wp1, 50');
+    const result = parseConstraints(text);
+    const bc = result.constraints[1];
+    expect(bc.type).toBe('bezier');
+    if (bc.type === 'bezier') {
+      expect(bc.targetId).toBe('A-->wp1');
+      expect(bc.incomingLength).toBe(50);
+      expect(bc.outgoingLength).toBeUndefined();
+    }
+  });
+
+  it('parses segment form wp1-->B', () => {
+    const text = wrap('waypoint A-->B as wp1\nbezier wp1-->B, 40');
+    const result = parseConstraints(text);
+    const bc = result.constraints[1];
+    expect(bc.type).toBe('bezier');
+    if (bc.type === 'bezier') {
+      expect(bc.targetId).toBe('wp1-->B');
+      expect(bc.incomingLength).toBe(40);
+    }
+  });
+
+  it('rejects segment form with two lengths', () => {
+    const text = wrap('waypoint A-->B as wp1\nbezier A-->wp1, 50, 60');
+    const result = parseConstraints(text);
+    expect(result.constraints).toHaveLength(1); // only the waypoint decl
+    expect(result.warnings!.length).toBeGreaterThan(0);
+  });
+
+  it('rejects bezier with non-numeric length', () => {
+    const text = wrap('waypoint A-->B as wp1\nbezier wp1, abc');
+    const result = parseConstraints(text);
+    expect(result.constraints).toHaveLength(1);
+    expect(result.warnings!.length).toBeGreaterThan(0);
+  });
+
+  it('has a stable id', () => {
+    const text = wrap('waypoint A-->B as wp1\nbezier wp1, 60');
+    const r1 = parseConstraints(text);
+    const r2 = parseConstraints(text);
+    expect(r1.constraints[1].id).toBe(r2.constraints[1].id);
+  });
+});

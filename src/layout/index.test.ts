@@ -557,6 +557,39 @@ describe('buildSplinePath', () => {
     const m = /C[\d.,]+(100),(0)/.exec(d.replace(/\s/g, ''));
     expect(m).not.toBeNull();
   });
+
+  it('handle override: overriding outLen at index 0 changes cp1 length not direction', () => {
+    // Horizontal points. catmull-rom tangent at p0 is along +X.
+    // Overriding outLen to 20 should give cp1 exactly 20px to the right of p0.
+    const points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 200, y: 0 }];
+    const d = buildSplinePath(points, [{ outLen: 20 }, undefined, undefined]);
+    // Parse all C commands: M0,0C cp1x,cp1y,cp2x,cp2y,x,y C...
+    const matches = [...d.matchAll(/C([\d.-]+),([\d.-]+),([\d.-]+),([\d.-]+),([\d.-]+),([\d.-]+)/g)];
+    expect(matches.length).toBeGreaterThan(0);
+    const firstC = matches[0];
+    const cp1x = parseFloat(firstC[1]);
+    const cp1y = parseFloat(firstC[2]);
+    // cp1x should be 20 (not the catmull-rom default of 100/3 ≈ 33.33)
+    expect(cp1x).toBeCloseTo(20, 1);
+    expect(cp1y).toBeCloseTo(0, 1);
+  });
+
+  it('handle override: overriding inLen at last index changes cp2 length not direction', () => {
+    const points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 200, y: 0 }];
+    const d = buildSplinePath(points, [undefined, undefined, { inLen: 15 }]);
+    // The second C command has cp2 close to the last point.
+    // cp2x should be 200 - 15 = 185 (tangent direction is +X at last point).
+    const matches = [...d.matchAll(/C([\d.-]+),([\d.-]+),([\d.-]+),([\d.-]+),([\d.-]+),([\d.-]+)/g)];
+    expect(matches).toHaveLength(2);
+    const lastC = matches[1];
+    const cp2x = parseFloat(lastC[3]);
+    expect(cp2x).toBeCloseTo(185, 1);
+  });
+
+  it('without overrides produces same result as before', () => {
+    const points = [{ x: 0, y: 0 }, { x: 100, y: 50 }, { x: 200, y: 0 }];
+    expect(buildSplinePath(points)).toBe(buildSplinePath(points, undefined));
+  });
 });
 
 // ── routeEdgeThroughWaypoints ─────────────────────────────────────────────────
