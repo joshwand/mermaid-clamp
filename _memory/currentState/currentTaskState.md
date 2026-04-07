@@ -1,30 +1,49 @@
 # Current Task State
 
-## Current Task: Task 7 — State Manager
+## Current Task: Bezier Clamping + Debug All Edges (complete, awaiting review)
 
-## Workflow State: READY TO START
+## Workflow State: AWAITING HUMAN REVIEW
 
 ## Yak-Shaving Stack: (empty)
 
 ## Scratchpad
 
-### Tasks 1–6 + Bugs + debug/bezier features: all complete
-142 tests passing. Branch: `claude/debug-bezier-handles-XJ1mm`.
+### All completed work (sessions 1–4)
 
-### Completed out-of-backlog features (session 3)
+**Tasks 1–6 + Bugs + debug/bezier features + bezier clamping**: all complete.  
+155 tests passing. Branch: `claude/fix-bezier-curves-PBeOu`.
 
-**debug directive + bezier handle length control** — fully implemented, tested, demoed.
+### Session 4 completed features
+
+**Bezier endpoint clamping + `%% debug bezier`**
+
+Problem: edges re-routed by `reanchorPath` (non-waypoint edges in `reRouteEdgesInSVG`) had:
+1. Start/end tangents at wrong angles after similarity transform — handles didn't point toward opposite node
+2. Unnecessary bulging curves on short/vertically-aligned edges
+
+Fixes:
+- `clampEndpointHandles(d, exitPt, adjustedEntry)` — exported, tested
+  - Redirects first cp1 to exit along edge direction
+  - Redirects last cp2 to arrive along same direction
+  - Caps both at `edgeLen × 0.4` (MAX_HANDLE_FRACTION)
+  - Applied in `reRouteEdgesInSVG` after every `reanchorPath`
+
+- `%% debug bezier` directive (top-level mermaid comment OR inside constraint block)
+  - Sets `ConstraintSet.debugBezier = true`
+  - `renderDebugOverlay(…, debugAllEdges=true)` shows handles for ALL edges
+  - Blue dashed lines + dots for control handles
+  - Green anchor dots on dagre edges; orange on waypoint edges
+  - Red squares at waypoints still shown as before
 
 Files changed:
-- `src/types.ts` — `BezierHandleConstraint`, `ConstraintSet.debug?`
-- `src/parser/index.ts` — `debug` directive, `bezier` parser
-- `src/serializer/index.ts` — serializes both; round-trip safe
-- `src/layout/index.ts` — `HandleOverride`, `buildSplinePath` overrides, `buildHandleOverrides`, `filterBezierConstraintsForEdge`, `renderDebugOverlay`
-- Tests: 20 new tests across parser, serializer, layout
-- Demo: `demos/task-debug-bezier.md` (8 scenarios), `demos/scripts/capture-debug-bezier.mjs`
-- Spec: `_memory/knowledgeBase/reference/ConstraintLanguageSpec.md` updated
+- `src/types.ts` — `ConstraintSet.debugBezier?`
+- `src/parser/index.ts` — top-level + in-block `debug bezier` detection
+- `src/layout/index.ts` — `clampEndpointHandles`, `appendPathHandles`, `appendAnchorDot`, extended `renderDebugOverlay`
+- `src/parser/index.test.ts` — 5 new tests
+- `src/layout/index.test.ts` — 8 new tests
+- `demos/task-bezier-clamping.md` — demo doc
 
-### Task 7 spec (from theBacklog.md)
+### Next up: Task 7 — State Manager (from theBacklog.md)
 
 **File:** `src/state/StateManager.ts`
 
@@ -59,3 +78,4 @@ Screenshots are in `demos/task-NN/` or `demos/task-<name>/`.
 - Session 2: reorganized demos/ into subdirectories; moved .mjs scripts to demos/scripts/
 - Session 2: expanded Task 6 demo to 8 scenarios; committed and pushed all
 - Session 3: implemented debug overlay + bezier handle length; 20 new tests; demo + spec updated
+- Session 4: bezier endpoint clamping + %% debug bezier overlay for all edges; 13 new tests; 155 total
