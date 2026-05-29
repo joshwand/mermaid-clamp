@@ -145,6 +145,13 @@ export function applyPositionsToSVG(
 
 const ARROW_MARGIN = 2; // px to pull the path end back from node border for arrowhead
 
+/**
+ * Maximum bezier handle length as a fraction of the edge chord length.
+ * Handles longer than this fraction cause visible bulging on short or nearly-
+ * straight edges, so we clamp them.
+ */
+const MAX_HANDLE_FRACTION = 0.4;
+
 const PATH_CMD_RE = /([MLCQSTAZmlcqstaz])((?:[^MLCQSTAZmlcqstaz])*)/g;
 
 interface PathSegment {
@@ -334,6 +341,66 @@ interface EdgeDataEntry {
 }
 
 /**
+ * After `reanchorPath` re-maps a bezier curve to new endpoints, its first and
+ * last bezier control points may point in the wrong direction because the
+ * similarity transform preserved the original shape orientation. This function
+ * clamps:
+ *
+ * 1. The first control point (cp1 of the first C command) so that the curve
+ *    exits `exitPt` in the direction of `adjustedEntry` (toward the target).
+ * 2. The last control point (cp2 of the last C command) so that the curve
+ *    arrives at `adjustedEntry` from the direction of `exitPt`.
+ * 3. All first/last handle lengths to at most `MAX_HANDLE_FRACTION * edgeLen`
+ *    to prevent bulging curves on short or nearly-straight edges.
+ *
+ * Paths with no C command are returned unchanged.
+ */
+export function clampEndpointHandles(
+  d: string,
+  exitPt: { x: number; y: number },
+  adjustedEntry: { x: number; y: number },
+): string {
+  const edgeDx = adjustedEntry.x - exitPt.x;
+  const edgeDy = adjustedEntry.y - exitPt.y;
+  const edgeLen = Math.hypot(edgeDx, edgeDy);
+  if (edgeLen < 0.01) return d;
+
+  const segments = parsePathSegments(d);
+  const newSegs = segments.map((s) => ({ cmd: s.cmd, nums: [...s.nums] }));
+  const maxHandleLen = edgeLen * MAX_HANDLE_FRACTION;
+
+  const ux = edgeDx / edgeLen; // unit vector exit→entry
+  const uy = edgeDy / edgeLen;
+
+  // Clamp the first control point (cp1) of the first C command to exit along edge direction.
+  for (let si = 0; si < newSegs.length; si++) {
+    if (newSegs[si].cmd.toUpperCase() !== 'C') continue;
+    const origLen = Math.hypot(newSegs[si].nums[0] - exitPt.x, newSegs[si].nums[1] - exitPt.y);
+    const handleLen = Math.min(origLen, maxHandleLen);
+    newSegs[si].nums[0] = exitPt.x + ux * handleLen;
+    newSegs[si].nums[1] = exitPt.y + uy * handleLen;
+    break;
+  }
+
+  // Clamp the last control point (cp2) of the last C command to arrive along edge direction.
+  for (let si = newSegs.length - 1; si >= 0; si--) {
+    if (newSegs[si].cmd.toUpperCase() !== 'C') continue;
+    const n = newSegs[si].nums.length;
+    // Last cubic in this segment: cp2 at [n-4, n-3], endpoint at [n-2, n-1].
+    const epx = newSegs[si].nums[n - 2];
+    const epy = newSegs[si].nums[n - 1];
+    const origLen = Math.hypot(newSegs[si].nums[n - 4] - epx, newSegs[si].nums[n - 3] - epy);
+    const handleLen = Math.min(origLen, maxHandleLen);
+    // cp2 sits "behind" the endpoint in the incoming direction (= -edge direction).
+    newSegs[si].nums[n - 4] = epx - ux * handleLen;
+    newSegs[si].nums[n - 3] = epy - uy * handleLen;
+    break;
+  }
+
+  return buildPathD(newSegs);
+}
+
+/**
  * After constraint solving moves nodes, rewrite edge `<path d="...">` attributes
  * so arrows connect the actual node borders of their (possibly moved) source and
  * target nodes.
@@ -401,7 +468,9 @@ export function reRouteEdgesInSVG(
     } else {
       // Smooth re-anchor: start/end move to new border points, intermediate
       // control points blend linearly so no bezier kinks are introduced.
-      pathEl.setAttribute('d', reanchored);
+      // Then clamp the endpoint handles so the curve exits/enters along the
+      // edge direction and short edges don't develop unnecessary bulges.
+      pathEl.setAttribute('d', clampEndpointHandles(reanchored, exitPt, adjustedEntry));
     }
 
     // Move edge label to the midpoint of the new path.
@@ -862,10 +931,16 @@ function getPathMidpoint(d: string): { x: number; y: number } | null {
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
- * Render a debug overlay onto the SVG showing:
- * - A small red square at each waypoint position.
- * - Blue bezier control-handle lines and dots for every C command on
- *   waypoint-routed edge paths.
+ * Render a debug overlay onto the SVG showing bezier control handles.
+ *
+ * - A small red square is drawn at each waypoint position.
+ * - Blue handle lines and dots are drawn for every C command in edge paths.
+ * - Green anchor dots are drawn at M, L, and C endpoint coordinates.
+ *
+ * When `debugAllEdges` is true (activated by `%% debug bezier`), handles are
+ * drawn for EVERY edge — both constraint-routed and dagre-generated. When
+ * false (activated by `debug` inside the constraint block), only waypoint-
+ * routed edges are annotated.
  *
  * An existing debug overlay (identified by `id="__clamp-debug"`) is removed
  * and replaced on each call so re-renders stay clean.
@@ -876,6 +951,7 @@ export function renderDebugOverlay(
   waypointDecls: WaypointDeclaration[],
   edges: EdgeDataEntry[],
   diagramId: string,
+  debugAllEdges?: boolean,
 ): void {
   // Remove any pre-existing overlay.
   svgEl.querySelector('#__clamp-debug')?.remove();
@@ -909,23 +985,23 @@ export function renderDebugOverlay(
     g.appendChild(rect);
   }
 
-  // Draw blue control-handle lines and dots for waypoint edge paths.
+  // Draw bezier handle annotations for edge paths.
   const processedEdgeIds = new Set<string>();
   for (const edge of edges) {
     const srcId = edge.start ?? edge.v;
     const tgtId = edge.end ?? edge.w;
     if (!srcId || !tgtId) continue;
 
-    // Find waypoints for this edge.
-    let edgeWaypointIds: string[] | undefined;
+    // Determine whether this edge should be annotated.
+    let hasWaypoints = false;
     for (const [edgeKey, wpIds] of waypointIdsByEdge) {
       const parsed = splitEdgeId(edgeKey);
-      if (parsed && parsed.source === srcId && parsed.target === tgtId) {
-        edgeWaypointIds = wpIds;
+      if (parsed && parsed.source === srcId && parsed.target === tgtId && wpIds.length > 0) {
+        hasWaypoints = true;
         break;
       }
     }
-    if (!edgeWaypointIds || edgeWaypointIds.length === 0) continue;
+    if (!debugAllEdges && !hasWaypoints) continue;
 
     const edgeId = edge.id ?? `L_${srcId}_${tgtId}_0`;
     if (processedEdgeIds.has(edgeId)) continue;
@@ -935,45 +1011,62 @@ export function renderDebugOverlay(
     const d = pathEl?.getAttribute('d');
     if (!d) continue;
 
-    // Parse C commands from the path to extract control points.
-    const segs = parsePathSegments(d);
-    let currentX = 0;
-    let currentY = 0;
-
-    for (const seg of segs) {
-      const upper = seg.cmd.toUpperCase();
-      if (upper === 'M') {
-        currentX = seg.nums[0] ?? 0;
-        currentY = seg.nums[1] ?? 0;
-      } else if (upper === 'C') {
-        // C cp1x,cp1y,cp2x,cp2y,x,y
-        for (let i = 0; i + 5 < seg.nums.length; i += 6) {
-          const cp1x = seg.nums[i];
-          const cp1y = seg.nums[i + 1];
-          const cp2x = seg.nums[i + 2];
-          const cp2y = seg.nums[i + 3];
-          const ex   = seg.nums[i + 4];
-          const ey   = seg.nums[i + 5];
-
-          // Line from start point to cp1.
-          appendHandleLine(g, currentX, currentY, cp1x, cp1y);
-          appendHandleDot(g, cp1x, cp1y);
-
-          // Line from end point to cp2.
-          appendHandleLine(g, ex, ey, cp2x, cp2y);
-          appendHandleDot(g, cp2x, cp2y);
-
-          currentX = ex;
-          currentY = ey;
-        }
-      } else if (upper === 'L') {
-        currentX = seg.nums[seg.nums.length - 2] ?? currentX;
-        currentY = seg.nums[seg.nums.length - 1] ?? currentY;
-      }
-    }
+    appendPathHandles(g, d, hasWaypoints);
   }
 
   svgEl.appendChild(g);
+}
+
+/**
+ * Parse an SVG path `d` string and append bezier handle annotations to `g`.
+ *
+ * For every cubic bezier segment (C command):
+ * - Dashed blue line from anchor to cp1, blue dot at cp1.
+ * - Dashed blue line from endpoint to cp2, blue dot at cp2.
+ *
+ * For every on-curve point (M, L, C endpoint):
+ * - Small green circle (anchor dot). For waypoint edges these are orange to
+ *   distinguish them from dagre-generated paths.
+ */
+function appendPathHandles(g: Element, d: string, isWaypointEdge: boolean): void {
+  const anchorColor = isWaypointEdge ? 'orange' : 'green';
+  const segs = parsePathSegments(d);
+  let currentX = 0;
+  let currentY = 0;
+
+  for (const seg of segs) {
+    const upper = seg.cmd.toUpperCase();
+    if (upper === 'M') {
+      currentX = seg.nums[0] ?? 0;
+      currentY = seg.nums[1] ?? 0;
+      appendAnchorDot(g, currentX, currentY, anchorColor);
+    } else if (upper === 'C') {
+      // C cp1x,cp1y,cp2x,cp2y,x,y  (may repeat for poly-bezier)
+      for (let i = 0; i + 5 < seg.nums.length; i += 6) {
+        const cp1x = seg.nums[i];
+        const cp1y = seg.nums[i + 1];
+        const cp2x = seg.nums[i + 2];
+        const cp2y = seg.nums[i + 3];
+        const ex   = seg.nums[i + 4];
+        const ey   = seg.nums[i + 5];
+
+        appendHandleLine(g, currentX, currentY, cp1x, cp1y);
+        appendHandleDot(g, cp1x, cp1y);
+        appendHandleLine(g, ex, ey, cp2x, cp2y);
+        appendHandleDot(g, cp2x, cp2y);
+        appendAnchorDot(g, ex, ey, anchorColor);
+
+        currentX = ex;
+        currentY = ey;
+      }
+    } else if (upper === 'L') {
+      for (let i = 0; i + 1 < seg.nums.length; i += 2) {
+        currentX = seg.nums[i];
+        currentY = seg.nums[i + 1];
+        appendAnchorDot(g, currentX, currentY, anchorColor);
+      }
+    }
+  }
 }
 
 function appendHandleLine(
@@ -1000,6 +1093,16 @@ function appendHandleDot(g: Element, cx: number, cy: number): void {
   circle.setAttribute('r', '3');
   circle.setAttribute('fill', 'blue');
   circle.setAttribute('opacity', '0.8');
+  g.appendChild(circle);
+}
+
+function appendAnchorDot(g: Element, cx: number, cy: number, color: string): void {
+  const circle = document.createElementNS(SVG_NS, 'circle');
+  circle.setAttribute('cx', String(Math.round(cx * 100) / 100));
+  circle.setAttribute('cy', String(Math.round(cy * 100) / 100));
+  circle.setAttribute('r', '4');
+  circle.setAttribute('fill', color);
+  circle.setAttribute('opacity', '0.7');
   g.appendChild(circle);
 }
 
@@ -1066,7 +1169,7 @@ const constrainedDagreAlgorithm = {
     const text = diagramTextMap.get(diagramId);
     if (!text) return;
     const cs = parseConstraints(text);
-    if (cs.constraints.length === 0 && !cs.debug) return;
+    if (cs.constraints.length === 0 && !cs.debug && !cs.debugBezier) return;
 
     // Collect parser warnings.
     for (const w of cs.warnings ?? []) pendingWarnings.push(w);
@@ -1101,8 +1204,8 @@ const constrainedDagreAlgorithm = {
     routeEdgesWithWaypoints(svgEl, solved, waypointDecls, edges, diagramId, bezierConstraints);
 
     // Step 8: If debug mode is active, render the debug overlay.
-    if (cs.debug) {
-      renderDebugOverlay(svgEl, solved, waypointDecls, edges, diagramId);
+    if (cs.debug || cs.debugBezier) {
+      renderDebugOverlay(svgEl, solved, waypointDecls, edges, diagramId, cs.debugBezier);
     }
   },
 };

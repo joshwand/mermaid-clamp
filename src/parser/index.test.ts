@@ -352,6 +352,41 @@ describe('parseConstraints — debug directive', () => {
   });
 });
 
+describe('parseConstraints — debug bezier directive', () => {
+  it('sets debugBezier=true for top-level %% debug bezier in mermaid text', () => {
+    const text = 'flowchart TD\nA --> B\n%% debug bezier';
+    const result = parseConstraints(text);
+    expect(result.debugBezier).toBe(true);
+    expect(result.debug).toBeUndefined();
+  });
+
+  it('sets debugBezier=true for "debug bezier" inside constraint block', () => {
+    const result = parseConstraints(wrap('debug bezier'));
+    expect(result.debugBezier).toBe(true);
+    expect(result.debug).toBeUndefined();
+  });
+
+  it('debugBezier=undefined when directive is absent', () => {
+    const result = parseConstraints(wrap('A south-of B, 20'));
+    expect(result.debugBezier).toBeUndefined();
+  });
+
+  it('debugBezier coexists with debug and other constraints', () => {
+    const text = wrap('debug\ndebug bezier\nA south-of B, 20');
+    const result = parseConstraints(text);
+    expect(result.debug).toBe(true);
+    expect(result.debugBezier).toBe(true);
+    expect(result.constraints).toHaveLength(1);
+  });
+
+  it('top-level %% debug bezier works even without a constraint block', () => {
+    const text = 'flowchart TD\nA --> B\nC --> D\n%% debug bezier\n';
+    const result = parseConstraints(text);
+    expect(result.debugBezier).toBe(true);
+    expect(result.constraints).toHaveLength(0);
+  });
+});
+
 // ── Bezier handle constraints ─────────────────────────────────────────────────
 
 describe('parseConstraints — bezier', () => {

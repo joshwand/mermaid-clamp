@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "postinstall": "curl -fsSL https://github.com/simonw/showboat/releases/download/v0.6.1/showboat-linux-amd64.tar.gz | tar -xz -C node_modules/showboat/bin/ && chmod +x node_modules/showboat/bin/showboat"
   },
   "exports": {
     ".": {
