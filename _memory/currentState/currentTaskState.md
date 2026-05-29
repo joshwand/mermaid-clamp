@@ -1,8 +1,32 @@
 # Current Task State
 
-## Current Task: Bezier Clamping + Debug All Edges (complete, awaiting review)
+## Current Task: User-facing demo page + README (complete, awaiting review)
 
 ## Workflow State: AWAITING HUMAN REVIEW
+
+## Session 5 (demo + README)
+
+User asked for: (1) a user-facing demo page illustrating all functionality, (2) a
+README explaining install/use.
+
+Findings: memory claimed Task 7 next, but Tasks 7–12 (StateManager, inference,
+EditorOverlay) are all still stubs. Only the layout engine works (parser,
+serializer, solver, layout integration, edge routing, bezier, debug overlays).
+README and demo therefore document only the working static/text-driven workflow
+and mark the interactive editor as not-yet-implemented (roadmap).
+
+Done:
+- Rewrote `demo/main.ts` + `demo/index.html` into a preset gallery (8 presets:
+  alignment+offsets, directional, anchor, group, waypoint, multi-waypoint elbow,
+  bezier handle tuning, debug overlay) on top of the existing before/after live
+  editor. Verified all 8 render via Playwright against `pnpm demo` (no console
+  errors); screenshots inspected.
+- Wrote `README.md`: status table, install, quick start, constraint block format,
+  full constraint reference table, debug directives, demo instructions,
+  programmatic API, development commands.
+- `pnpm typecheck` clean; `pnpm test` 155 passing.
+
+## Prior task (Session 4): Bezier Clamping + Debug All Edges
 
 ## Yak-Shaving Stack: (empty)
 
